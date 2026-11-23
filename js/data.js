@@ -86,6 +86,9 @@ export const SETS = {
 };
 export const SET_CHANCE = 0.15;   // レア・エピックがセット装備になる確率
 
+// 拠点の施設の最大Lv（中身は meta.js）
+export const FAC_MAX = {train:10, smith:5, store:5, dojo:5, vault:5};
+
 // 素材（分解で手に入る。レア度ごと）
 export const MATS = ['欠片','結晶','宝玉','秘石','星核'];
 // 所持枠：最初は60。10ずつ拡張できる（最大150）

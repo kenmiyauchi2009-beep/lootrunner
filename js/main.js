@@ -10,7 +10,9 @@ import { toast } from './ui.js';
 import { openSettings } from './settings.js';
 import { setupOffline } from './offline.js';
 import { setMuted } from './audio.js';
-import { pickSkill, ACTIVES, PASSIVES } from './skills.js';
+import { pickSkill, rerollSkills, ACTIVES, PASSIVES } from './skills.js';
+import * as META from './meta.js';
+import { openFacilities, openAchievements, openRecords, openDaily } from './hub.js';
 
 const loaded = loadGame();
 setMuted(!!SAVE.settings.mute);
@@ -30,4 +32,5 @@ setupOffline();
 window.T = { get SAVE(){ return SAVE; }, get R(){ return R; }, startRun, toBase, genItem, computeStats, renderBase, step, draw, newSave, saveGame, openItem, jump, releaseJump, JUMP, BAT_LANE, ROLL_SPEED, pickSkill, ACTIVES, PASSIVES, equipItem,
   SAVE_VERSION, migrate, exportText, parseImport, applySave, resetSave, openSettings,
   powerWith, equipKeyFor, smithUpgrade, smithReroll, smithValue, smithLock, salvage, upgradeCost, valueCost, affGrade, openCodex,
-  mkEnemy, EB, GHOST, ghostY, ORB, PILLAR, VENT, ventState, BOSS_TELE, CP_CATCHUP, elv, DATA };
+  mkEnemy, EB, GHOST, ghostY, ORB, PILLAR, VENT, ventState, BOSS_TELE, CP_CATCHUP, elv, DATA,
+  rerollSkills, META, openFacilities, openAchievements, openRecords, openDaily };

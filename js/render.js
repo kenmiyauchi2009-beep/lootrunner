@@ -189,8 +189,15 @@ export function draw(){
       ctx.stroke();
     } else if (f.kind==='part'){
       ctx.globalAlpha = a; ctx.fillStyle = f.c; ctx.fillRect(f.x-2, f.y-2, 4, 4); ctx.globalAlpha = 1;
+    } else if (f.kind==='beam'){   // 光線
+      const w = f.w * (0.4 + a*0.6);
+      ctx.globalAlpha = a*0.45; ctx.fillStyle = '#fff6c8'; ctx.fillRect(f.x, f.y - w, VW - f.x + 20, w*2);
+      ctx.globalAlpha = a; ctx.fillStyle = '#ffffff'; ctx.fillRect(f.x, f.y - w*0.3, VW - f.x + 20, w*0.6);
+      ctx.globalAlpha = 1; glow(f.x, f.y, 16, '#fff6c8', a);
     }
   }
+  // 時の砂：画面を少し紫に
+  if (R.sk.slowT > 0){ ctx.globalAlpha = Math.min(0.18, R.sk.slowT*0.3) * (R.sk.slowF < 0.3 ? 1.5 : 1); ctx.fillStyle = '#9a7dff'; ctx.fillRect(-10, VTOP, VW + 20, VBOT - VTOP); ctx.globalAlpha = 1; }
   // ダメージ数字（会心は大きく、出た瞬間に弾む）
   ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.6)';
   for (const t of R.texts){
@@ -215,6 +222,34 @@ export function draw(){
 
 function drawSkills(){
   const S = R.sk;
+  // 聖域（足元の光の輪）
+  if (S.auraR){
+    const r = S.auraR, pulse = 0.5 + 0.5*Math.sin(R.t*6), cy = R.p.y - 15;
+    glow(PX, cy, r, S.evo.aura ? '#fff0a8' : '#fff6d0', 0.16 + 0.06*pulse);
+    ctx.strokeStyle = `rgba(255,240,170,${0.35 + 0.2*pulse})`; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(PX, cy, r, 0, Math.PI*2); ctx.stroke();
+  }
+  // 地雷
+  for (const m of S.mines){
+    const blink = m.arm > 0 ? 0.4 : Math.sin(R.t*10 + m.x) > 0 ? 1 : 0.5;
+    rr(m.x - 7, GY - 4, 14, 5, 2, '#4a3a33');
+    circ(m.x, GY - 4, 2.2, `rgba(255,120,80,${blink})`);
+  }
+  // ブーメラン
+  for (const b of S.booms){
+    if (b.t < 0) continue;
+    glow(b.x, b.y, b.r*1.6, b.big ? '#ffe08a' : '#ffc46b', 0.5);
+    ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(b.spin);
+    ctx.strokeStyle = b.big ? '#fff0b0' : '#ffc46b'; ctx.lineWidth = b.big ? 4 : 3; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.arc(0, 0, b.r*0.8, 0.3, Math.PI - 0.3); ctx.stroke();
+    ctx.restore();
+  }
+  // 障壁（自分を包む泡）
+  if (S.shield > 0){
+    const cy = R.p.y - 15, pulse = 0.5 + 0.5*Math.sin(R.t*5);
+    ctx.strokeStyle = `rgba(143,216,255,${0.55 + 0.3*pulse})`; ctx.lineWidth = S.shield > 1 ? 3 : 2;
+    ctx.beginPath(); ctx.arc(PX, cy, 22, 0, Math.PI*2); ctx.stroke();
+    glow(PX, cy, 26, '#8fd8ff', 0.18);
+  }
   // 回転刃
   const ev = S.evo.blade;
   for (const [x, y, a] of S.blades){
@@ -595,7 +630,7 @@ function drawHUD(H){
   }
   ctx.textAlign = 'right'; ctx.font = 'bold 12px -apple-system, sans-serif';
   outlined(`${fmt(R.gold)} G`, VW - 10, 20, '#ffd36b');
-  if (R.diff > 1){ ctx.font = 'bold 9px -apple-system, sans-serif'; outlined(`難易度${R.diff}`, VW - 10, 34, '#ff9a7a'); }
+  if (R.daily || R.diff > 1){ ctx.font = 'bold 9px -apple-system, sans-serif'; outlined(`${R.daily ? '日替わり ' : ''}${R.diff > 1 ? `難易度${R.diff}` : ''}`, VW - 10, 34, R.daily ? '#7fe8ff' : '#ff9a7a'); }
   // 経験値バー（画面の一番上）とレベル
   const S = R.sk;
   rr(0, 0, VW, 4, 0, 'rgba(0,0,0,.4)');

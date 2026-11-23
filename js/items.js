@@ -2,6 +2,7 @@
 import { rnd, pick, pickW } from './util.js';
 import { WTYPES, BASE_NAMES, AFFIX, UNIQUES, uniqueOf, SETS, SET_CHANCE, EQUIP_SLOTS } from './data.js';
 import { SAVE } from './save.js';
+import { smithDisc, salvGoldMul, salvMatPlus, dojoHp, dojoAtk, vaultGold } from './meta.js';
 
 // ---------- 付与効果と階級 ----------
 export function affRange(it, k){
@@ -130,6 +131,8 @@ export function computeStats(eq){
   if (U('hawk')) s.crit += 15;
   if (U('thornmail')) s.thorns += 300;
   if (U('wing')) s.maxJumps = 3;
+  // 道場・金庫（施設）
+  s.hp *= dojoHp(); s.atk += dojoAtk(); s.gold += vaultGold();
 
   s.finalDmg = s.dmg * (1 + s.atk/100);
   s.rate = Math.max(0.2, 1 + s.aspd/100) / s.interval;
@@ -167,18 +170,21 @@ export const equippedKey = it => EQUIP_SLOTS.find(k => SAVE.equip[k] === it);
 
 // ---------- 鍛冶・分解の費用 ----------
 // 費用は {gold, mat:{r, n}}。素材はレア度ごと（MATS）
-export const salvageValue = it => Math.round(4 * it.ilvl * (1 + it.r*it.r) * (1 + it.up*0.5));
-export const salvageMats  = it => ({r:it.r, n:1 + (it.r >= 2 ? 1 : 0) + (it.up >= 5 ? 1 : 0)});
-export const upgradeCost  = it => ({gold:Math.round(12 * Math.pow(it.ilvl,1.1) * Math.pow(it.up+1,1.6) * (1 + it.r*0.5)),
+// 倉庫（施設）で分解の収益が増え、鍛冶屋（施設）で鍛冶のゴールドが安くなる
+export const salvageValue = it => Math.round(4 * it.ilvl * (1 + it.r*it.r) * (1 + it.up*0.5) * salvGoldMul());
+export const salvageMats  = it => ({r:it.r, n:1 + (it.r >= 2 ? 1 : 0) + (it.up >= 5 ? 1 : 0) + salvMatPlus(it.r)});
+const sg = g => Math.round(g * smithDisc());
+export const upgradeCost  = it => ({gold:sg(12 * Math.pow(it.ilvl,1.1) * Math.pow(it.up+1,1.6) * (1 + it.r*0.5)),
                                     mat: it.up >= 5 ? {r:it.r, n:it.up - 4} : null});
-export const rerollCost   = it => ({gold:Math.round(15 * it.ilvl * (1 + it.r)), mat:{r:it.r, n:1}});           // 付け替え
-export const valueCost    = it => ({gold:Math.round(5 * it.ilvl * (1 + it.r)), mat:null});                    // 数値の再抽選（安い）
-export const lockCost     = it => ({gold:Math.round(40 * it.ilvl * (1 + it.r)), mat:{r:Math.min(4, it.r + 1), n:1}}); // 効果の固定（高い）
+export const rerollCost   = it => ({gold:sg(15 * it.ilvl * (1 + it.r)), mat:{r:it.r, n:1}});           // 付け替え
+export const valueCost    = it => ({gold:sg(5 * it.ilvl * (1 + it.r)), mat:null});                    // 数値の再抽選（安い）
+export const lockCost     = it => ({gold:sg(40 * it.ilvl * (1 + it.r)), mat:{r:Math.min(4, it.r + 1), n:1}}); // 効果の固定（高い）
 export const canPay = c => SAVE.gold >= c.gold && (!c.mat || SAVE.mats[c.mat.r] >= c.mat.n);
 function pay(c){
   if (!canPay(c)) return false;
   SAVE.gold -= c.gold;
   if (c.mat) SAVE.mats[c.mat.r] -= c.mat.n;
+  SAVE.stats.smith++;
   return true;
 }
 
@@ -186,6 +192,7 @@ function pay(c){
 export function smithUpgrade(it){
   if (it.up >= 10 || !pay(upgradeCost(it))) return false;
   it.up++;
+  SAVE.stats.upMax = Math.max(SAVE.stats.upMax, it.up);
   return true;
 }
 // 付け替え：1行を別の効果に引き直す
@@ -225,4 +232,5 @@ export function salvage(it){
 export function noteFound(it){
   if (it.uniq) SAVE.codex.u[it.uniq] = 1;
   if (it.set) (SAVE.codex.s[it.set] ||= {})[it.slot] = 1;
+  if (it.aff.some(a => a.t >= 6)) SAVE.stats.t6 = 1;
 }

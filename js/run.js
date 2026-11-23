@@ -7,7 +7,8 @@ import { closeModal, dialog, closeDialog } from './ui.js';
 import { renderBase } from './base.js';
 import { draw } from './render.js';
 import { sfx, unlockAudio, isMuted, setMuted } from './audio.js';
-import { initSkills, updateSkills, onLand, dropGem, openLevelUp, skillSummary, XP, catchUp } from './skills.js';
+import { initSkills, updateSkills, onLand, dropGem, openLevelUp, skillSummary, XP, catchUp, absorbHit, applyPassives } from './skills.js';
+import { dailyPlan, seeded, recordRun, rewardText, DAILY_MODS } from './meta.js';
 
 export const VH = 300, GY = 255, PX = 70;
 export let R = null, cv = $('cv'), ctx = cv.getContext('2d');
@@ -47,14 +48,15 @@ window.addEventListener('resize', () => { if (R) sizeCanvas(); });
 // チェックポイントから出撃したときの補い：そこまで走っていれば上がっていたスキルのレベルと、大群の育ち具合（経過時間の換算）
 export const CP_CATCHUP = {500:{lv:5, t:105}, 1000:{lv:8, t:210}, 1500:{lv:11, t:316}};   // シミュレーションで測った中央値
 
-// opt：{diff, start}（省略すると前回の選択）
+// opt：{diff, start}（省略すると前回の選択）/ {daily:true}：日替わりダンジョン（日付で決まるコース。opt.key で日付を指定できる）
 export function startRun(opt = {}){
   unlockAudio();
   const P = SAVE.prog;
-  const diff = Math.min(P.maxDiff, Math.max(1, opt.diff ?? P.diff));
-  let start = opt.start ?? P.start;
+  const daily = opt.daily ? dailyPlan(opt.key) : null;
+  const diff = daily ? daily.diff : Math.min(P.maxDiff, Math.max(1, opt.diff ?? P.diff));
+  let start = daily ? 0 : opt.start ?? P.start;
   if (!(start >= 0 && start % 500 === 0 && start <= (P.cp[diff] || 0))) start = 0;
-  P.diff = diff; P.start = start;
+  if (!daily){ P.diff = diff; P.start = start; }
   const D = diffInfo(diff);
   const base = computeStats(SAVE.equip), st = {...base, stompMul:1};   // st は出撃中に強化スキルで変わる
   R = {dist:start, px:start*25, speed:150, base, st, eid:0, levelup:false, hordeT:45, horde:null,
@@ -62,10 +64,27 @@ export function startRun(opt = {}){
        p:{y:GY, vy:0, jumps:0, hold:false, buf:0, hp:st.hp, maxHp:st.hp, inv:0, atkT:0.4, revived:false, swing:0, swingMax:0.18},
        enemies:[], shots:[], eshots:[], haz:[], fx:[], texts:[], spawnT:1.0, nextBoss:start + 500, boss:null, gimT:6, fog:0,
        gold:0, kills:0, stomps:0, jumpsUsed:0, hurts:{}, loot:[], paused:false, over:false, t:0, elites:0, bossLog:[],
-       shake:0, shakeAmp:0, hitstop:0, flash:null, hurtFx:0, hints:[], hint:null,
-       banner:{t:2.4, txt:''}};
-  R.banner.txt = (diff > 1 ? `難易度${diff} ・ ` : '') + zone().n;
+       shake:0, shakeAmp:0, hitstop:0, flash:null, hurtFx:0, hints:[], hint:null, eliteKills:0, flawless:0, bossHits:0,
+       banner:{t:2.4, txt:''},
+       // 日替わり：コースの乱数（敵の並び・仕掛け）は日付で決まる列を使う。条件で倍率が変わる
+       daily, zoneOrder:daily ? daily.zones : null, cr:daily ? seeded(daily.seed) : Math.random,
+       goldMul:1, lootMul:1, xpMul:1, healBoss:false, foeSpd:1, eliteMul:1, hordeEvery:HORDE.every, fogAll:0};
+  if (daily){
+    const M = new Set(daily.mods);
+    if (M.has('gold')) R.goldMul = 2;
+    if (M.has('loot')) R.lootMul = 1.5;
+    if (M.has('wise')) R.xpMul = 1.5;
+    if (M.has('heal')) R.healBoss = true;
+    if (M.has('fast')) R.foeSpd = 1.3;
+    if (M.has('elite')) R.eliteMul = 3;
+    if (M.has('horde')) R.hordeEvery = 28;
+    if (M.has('tough')) R.hpMul *= 1.4;
+    if (M.has('fog')) R.fogAll = 0.5;
+    R.hordeT = Math.min(R.hordeT, R.hordeEvery + 5);
+  }
+  R.banner.txt = daily ? `日替わり ・ ${zone().n}` : (diff > 1 ? `難易度${diff} ・ ` : '') + zone().n;
   initSkills();
+  applyPassives();
   if (start) catchUp(CP_CATCHUP[start].lv);
   if (st.uniq.has('sage')) R.sk.pending++;   // 賢者の冠：出撃してすぐスキルを1つ選べる
   saveGame();
@@ -93,7 +112,7 @@ function loop(now){
   rafId = requestAnimationFrame(loop);
 }
 export const zoneIdx = () => Math.min(ZONES.length - 1, Math.floor(R.nextBoss/500) - 1);
-export const zone = () => ZONES[zoneIdx()];
+export const zone = () => ZONES[R.zoneOrder ? R.zoneOrder[zoneIdx()] : zoneIdx()];
 export const elv = () => 1 + Math.floor(R.dist/100) + R.lvOff;   // 敵Lv（表示・拾う装備のアイテムLv）
 const blv = () => elv() - R.lvOff;                                 // 強さの計算に使うLv（難易度の分は倍率で掛ける）
 export const ecenter = e => [e.x, e.y - e.h/2];
@@ -136,14 +155,15 @@ export const BOSS_DMG_GROW = 1.12;
 export const SKILL_RES = {thrower:0.35, shield:0.6, boss:0};
 const ELITE = {hp:3, dmg:1.3, size:1.25, gold:5, xp:5, chance:0.012, grow:1/150000};   // 1回の出撃で5体くらい
 
+// o.rng：乱数（コースの敵は R.cr を使い、日替わりで同じ並びになるようにする）
 export function mkEnemy(type, o = {}){
-  const lv = elv(), bl = blv(), B = EB[type];
+  const lv = elv(), bl = blv(), B = EB[type], rng = o.rng || Math.random;
   const hm = (type === 'boss' ? Math.pow(BOSS_GROW, bl - 1) : hpScale(bl)) * R.hpMul;
   const dm = (type === 'boss' ? Math.pow(BOSS_DMG_GROW, bl - 1) : dmgScale(bl)) * R.dmgMul;
   const e = {id:++R.eid, type, lv, x:VW+30, y:GY, hp:B.hp*hm, maxHp:B.hp*hm, dmg:B.dmg*dm, w:B.w, h:B.h, gold:B.gold, scale:1,
-    t:Math.random()*6, burnT:0, burnDps:0, burnAcc:0, burnTick:0.5, phase:'walk', throws:0, cd:1.6, tele:0, next:null, rockQ:0, rockT:0, hitFlash:0, wind:false, vel:0};
-  if (type==='bat'){ e.lane = Math.random() < 0.5 ? 'low' : 'high'; e.baseY = BAT_LANE[e.lane]; e.y = e.baseY; }
-  if (type==='ghost'){ e.ph = Math.random()*Math.PI*2; e.y = ghostY(e); }
+    t:rng()*6, burnT:0, burnDps:0, burnAcc:0, burnTick:0.5, phase:'walk', throws:0, cd:1.6, tele:0, next:null, rockQ:0, rockT:0, hitFlash:0, wind:false, vel:0};
+  if (type==='bat'){ e.lane = rng() < 0.5 ? 'low' : 'high'; e.baseY = BAT_LANE[e.lane]; e.y = e.baseY; }
+  if (type==='ghost'){ e.ph = rng()*Math.PI*2; e.y = ghostY(e); }
   if (type==='mole'){ e.phase = 'under'; e.under = true; }
   if (type==='chest'){ e.x = VW + 20; }
   if (type==='boss'){
@@ -151,8 +171,8 @@ export function mkEnemy(type, o = {}){
     e.q = []; e.qt = 0; e.cd = 1.2; e.fightT = 0; e.last = [];
   }
   if (o.elite){
-    const mods = Object.keys(ELITE_MODS), n = Math.random() < 0.35 ? 2 : 1, got = [];
-    while (got.length < n){ const m = pick(mods); if (!got.includes(m)) got.push(m); }
+    const mods = Object.keys(ELITE_MODS), n = rng() < 0.35 ? 2 : 1, got = [];
+    while (got.length < n){ const m = pick(mods, rng); if (!got.includes(m)) got.push(m); }
     e.elite = got;
     const hp = ELITE.hp * (got.includes('tough') ? 2 : 1);
     e.hp *= hp; e.maxHp *= hp; e.dmg *= ELITE.dmg; e.gold *= ELITE.gold;
@@ -185,18 +205,19 @@ function meet(key){
 }
 
 function spawnEnemy(){
-  const d = R.dist, zd = d - (R.nextBoss - 500), Z = zone();
+  const d = R.dist, zd = d - (R.nextBoss - 500), Z = zone(), rng = R.cr;
   // 小さいスライムの群れ（進むほど多く・長く）
-  if (d > 40 && Math.random() < Math.min(0.45, 0.15 + d/2000)){
+  if (d > 40 && rng() < Math.min(0.45, 0.15 + d/2000)){
     const n = Math.min(8, 3 + Math.floor(d/400));
-    for (let i=0;i<n;i++){ const e = mkEnemy('mini'); e.x += i*20; R.enemies.push(e); }
+    for (let i=0;i<n;i++){ const e = mkEnemy('mini', {rng}); e.x += i*20; R.enemies.push(e); }
     return;
   }
   const w = {};
   for (const [k, [wt, from]] of Object.entries(Z.foes)) if (zd >= from) w[k] = wt;
-  const type = pickW(w);
-  const elite = d - R.start > 120 && Math.random() < ELITE.chance + d*ELITE.grow;
-  const e = mkEnemy(type, {elite});
+  const type = pickW(w, rng);
+  const elite = d - R.start > 120 && rng() < (ELITE.chance + d*ELITE.grow) * R.eliteMul;
+  const e = mkEnemy(type, {elite, rng});
+  if (R.log) R.log.push([Math.round(d), type, elite ? 1 : 0, e.lane || '', e.elite ? e.elite.join('+') : '']);
   R.enemies.push(e);
   meet(type);
   if (elite){ R.elites++; meet('elite'); R.banner = {t:1.4, txt:'エリート出現！', c:'#ffd36b'}; }
@@ -204,7 +225,8 @@ function spawnEnemy(){
 // 大群：予告のあと、小さいスライムがすき間なく固まった「壁」が何度も来る。
 // 長い壁はジャンプでは越えきれないので、範囲攻撃のスキルで崩す（大群＝スキルの関門、ボス＝装備の関門）
 export const HORDE = {every:40, walls:6, gap:1.0};
-const hordeT = () => R.t + R.tOff;
+// 大群の育ち具合の時計。日替わりはボス戦の長さで変わらないよう、走った距離から数える
+const hordeT = () => (R.daily ? R.dist / R.speed : R.t) + R.tOff;
 const wallSize = () => Math.min(18, 5 + Math.floor(hordeT() / 25));
 function updateHorde(dt){
   if (R.boss) return;
@@ -213,7 +235,7 @@ function updateHorde(dt){
     if (R.hordeT <= 0 && R.dist < R.nextBoss - 80){
       R.horde = {walls:Math.min(HORDE.walls, 3 + Math.floor(hordeT() / 60)), t:1.2};   // 序盤の大群は壁が少ない
       R.banner = {t:1.8, txt:'大群が来る！', c:'#ff8a6b'};
-      sfx('warn'); R.hordeT = HORDE.every;
+      sfx('warn'); R.hordeT = R.hordeEvery;
       meet('mini');
     }
     return;
@@ -221,7 +243,8 @@ function updateHorde(dt){
   R.horde.t -= dt;
   if (R.horde.t > 0) return;
   const n = wallSize();
-  for (let i=0;i<n;i++){ const e = mkEnemy('mini'); e.x += i*11; e.t = i*0.7; R.enemies.push(e); }
+  for (let i=0;i<n;i++){ const e = mkEnemy('mini', {rng:R.cr}); e.x += i*11; e.t = i*0.7; R.enemies.push(e); }
+  if (R.log) R.log.push([Math.round(R.dist), 'wall', n]);
   R.horde.t = HORDE.gap;
   if (--R.horde.walls <= 0) R.horde = null;
 }
@@ -234,14 +257,16 @@ function updateGimmick(dt, scroll){
   if (!R.boss && R.dist < R.nextBoss - 60){
     R.gimT -= dt;
     if (R.gimT <= 0){
-      if (Z.gim === 'chest'){ R.enemies.push(mkEnemy('chest')); meet('chest'); R.gimT = rnd(15, 22); }
-      else if (Z.gim === 'sand'){ R.haz.push({kind:'sand', x:VW + 40, w:rnd(36, 50)}); meet('sand'); R.gimT = rnd(3.5, 6.5); }
-      else if (Z.gim === 'lava'){ R.haz.push({kind:'vent', x:VW + 30, w:VENT.w, c:rnd(0, VENT.cycle), dmg:12*dmgScale(blv())*R.dmgMul}); meet('vent'); R.gimT = rnd(3.2, 5.5); }
+      const rng = R.cr;
+      if (Z.gim === 'chest'){ R.enemies.push(mkEnemy('chest', {rng})); meet('chest'); R.gimT = rnd(15, 22, rng); }
+      else if (Z.gim === 'sand'){ R.haz.push({kind:'sand', x:VW + 40, w:rnd(36, 50, rng)}); meet('sand'); R.gimT = rnd(3.5, 6.5, rng); }
+      else if (Z.gim === 'lava'){ R.haz.push({kind:'vent', x:VW + 30, w:VENT.w, c:rnd(0, VENT.cycle, rng), dmg:12*dmgScale(blv())*R.dmgMul}); meet('vent'); R.gimT = rnd(3.2, 5.5, rng); }
+      if (R.log) R.log.push([Math.round(R.dist), Z.gim]);
       else { meet('fog'); R.gimT = 99; }
     }
   }
   // 霧：森では視界が狭い（魔女の第2形態でさらに濃く）
-  const fogT = Z.gim === 'fog' ? (R.boss && R.boss.p2 ? 1 : 0.7) : 0;
+  const fogT = Z.gim === 'fog' ? (R.boss && R.boss.p2 ? 1 : 0.7) : R.fogAll;
   R.fog += (fogT - R.fog) * Math.min(1, dt*1.5);
   const ground = p.y >= GY - 1;
   for (const h of R.haz){
@@ -277,7 +302,7 @@ export function step(dt){
 
   if (!R.boss && !(R.clearT > 0) && R.dist >= R.nextBoss){
     const id = zone().boss;
-    R.boss = mkEnemy('boss', {boss:id}); R.enemies.push(R.boss);
+    R.boss = mkEnemy('boss', {boss:id}); R.enemies.push(R.boss); R.bossHits = 0;
     R.haz = [];
     R.banner = {t:2, txt:`${BOSSES[id].n} 出現！`, c:'#ff8a6b'};
     meet(id);
@@ -285,7 +310,7 @@ export function step(dt){
   }
   if (!R.boss && !(R.clearT > 0)){
     R.spawnT -= dt;
-    if (R.spawnT <= 0){ spawnEnemy(); R.spawnT = Math.max(0.45, 1.5 - R.dist/1500) * rnd(0.7,1.3); }
+    if (R.spawnT <= 0){ spawnEnemy(); R.spawnT = Math.max(0.45, 1.5 - R.dist/1500) * rnd(0.7, 1.3, R.cr); }
   }
   updateHorde(dt);
   updateGimmick(dt, scroll);
@@ -314,14 +339,15 @@ export function step(dt){
   const rate = st.rate * (p.hp < p.maxHp*0.5 ? 1 + st.lowHpAspd/100 : 1);   // 背水：HP50%以下で攻撃速度
   if (p.atkT <= 0) p.atkT = attack() ? 1/rate : 0.05;
 
-  // 敵
+  // 敵（時の砂：tf の分だけ敵と敵の弾が遅くなる。ボス戦の残り時間は遅くならない）
+  const tf = R.sk.slowT > 0 ? R.sk.slowF : 1;
   for (const e of R.enemies){
     if (e.dead) continue;
-    e.t += dt; if (e.hitFlash > 0) e.hitFlash -= dt;
+    e.t += dt*tf; if (e.hitFlash > 0) e.hitFlash -= dt;
     // 足止め（stun）・鈍足（slow）。地面と一緒には流れる
     if (e.stun > 0) e.stun -= dt; if (e.slow > 0) e.slow -= dt;
-    const m = e.stun > 0 ? 0 : e.slow > 0 ? 0.55 : 1, x0 = e.x;
-    if (e.type === 'boss') updateBoss(e, dt);
+    const m = (e.stun > 0 ? 0 : e.slow > 0 ? 0.55 : 1) * tf, x0 = e.x;
+    if (e.type === 'boss') updateBoss(e, dt*tf, dt);
     else moveFoe(e, dt, scroll, m);
     e.vel = (e.x - x0) / dt;   // 画面上の速さ（ボットが当たるまでの時間を読むのに使う）
     if (e.dead) continue;
@@ -374,7 +400,8 @@ export function step(dt){
       if (!alive(e) || s.hit.includes(e.id)) continue;
       if (Math.abs(s.x - e.x) < e.w/2 + s.r && s.y > e.y - e.h - s.r && s.y < e.y + s.r){
         if (s.kind==='orb'){ explode(s.x, s.y, s.aoe, s.dmg, false); if (R.st.uniq.has('storm')) chainLightning(e, s.dmg*0.6); s.life = 0; break; }
-        hit(e, s.dmg, s.noProc, s.quiet); s.hit.push(e.id);
+        if (s.onHit) s.onHit(e, s.dmg); else hit(e, s.dmg, s.noProc, s.quiet);
+        s.hit.push(e.id);
         if (--s.pierce < 0){ s.life = 0; break; }
       }
     }
@@ -382,7 +409,7 @@ export function step(dt){
   }
   R.shots = R.shots.filter(s => s.life > 0);
 
-  updateEShots(dt, scroll);
+  updateEShots(dt*tf, scroll/tf);
 
   // 倒した敵
   for (const e of R.enemies) if (!e.dead && e.hp <= 0) onKill(e);
@@ -403,7 +430,7 @@ export function step(dt){
 
 // 雑魚の動き（m：足止め・鈍足の倍率）
 function moveFoe(e, dt, scroll, m){
-  const sp = EB[e.type].sp * (has(e, 'fast') ? 1.6 : 1) * m, p = R.p;
+  const sp = EB[e.type].sp * (has(e, 'fast') ? 1.6 : 1) * R.foeSpd * m, p = R.p;
   switch (e.type){
     case 'bat':
       e.x -= (sp + scroll)*dt;
@@ -438,7 +465,7 @@ function moveFoe(e, dt, scroll, m){
         e.x -= (sp + scroll)*dt;
         if (e.x - PX < 115) { e.phase = 'tele'; e.tele = 0.6; sfx('warn'); }
       } else if (e.phase==='tele'){
-        e.x -= (sp + scroll)*dt; e.tele -= dt;
+        e.x -= (sp + scroll)*dt; e.tele -= dt*Math.max(m, 0.4);
         if (e.tele <= 0){ e.phase = 'pop'; e.under = false; e.harmless = true; e.popT = 0.3; burst(e.x, GY, '#8a6a4a', 8); sfx('thud'); shake(0.1, 2); }
       } else {
         e.x -= (14*m + scroll)*dt;
@@ -454,7 +481,7 @@ function moveFoe(e, dt, scroll, m){
         e.x -= (sp + scroll)*dt;
         if (e.x - PX < 95){ e.phase = 'fuse'; e.tele = 0.6; e.harmless = true; sfx('warn'); }
       } else {
-        e.x -= scroll*dt; e.tele -= dt;
+        e.x -= scroll*dt; e.tele -= dt*Math.max(m, 0.4);
         if (e.tele <= 0){
           e.dead = true;
           const bx = e.x, by = GY - 11, r = BOMB_R;
@@ -482,13 +509,14 @@ export const BOSS_RAGE = 40, BOSS_LIMIT = 70;
 export const BOSS_TELE = {hop:0.8, bighop:0.85, spit:0.6, rocks:0.8, boulder:0.9, orbs:0.75, summon:0.6, pillars:0.45, breath:0.7};
 export const ORB = {low:GY - 12, high:GY - 62, speed:165, r:7};
 export const PILLAR = {tele:0.75, act:0.2, h:34, w:20};
-function updateBoss(e, dt){
+// dt：ボスの動き（時の砂で遅くなる）/ realDt：戦いの残り時間に使う実際の時間
+function updateBoss(e, dt, realDt = dt){
   // 近接武器が届く距離まで近づく（短剣は近くまで来る）。弓・杖のときは 100 先で止まる
   const reach = WTYPES[R.st.type].melee ? R.st.range * (1 + R.st.rangeP/100) + e.w/2 - 8 : 100;
   const stopX = Math.min(VW - 70, PX + Math.max(60, Math.min(100, reach)));
   if (e.fly) e.y = GY - e.fly - Math.sin(R.t*2)*4;
   if (e.x > stopX){ e.x -= 60*dt; return; }
-  e.fightT += dt;
+  e.fightT += realDt;
   if (e.fightT >= BOSS_LIMIT){ R.flash = {c:'#ff3b2f', t:0.6, max:0.6}; shake(0.6, 6); sfx('bosskill'); endRun(false, 'boss'); return; }
   const over = e.fightT - BOSS_RAGE;
   if (over > 0 && !e.rage){ R.banner = {t:2, txt:'ボスが怒った！', c:'#ff5b4a'}; sfx('boss'); shake(0.4, 3); }
@@ -664,7 +692,8 @@ function attack(){
 // skill：スキルによる攻撃。装備の会心は乗らず、大きい敵には効きにくい。数字は小さく、命中音なし
 // 装備による攻撃には、条件付きの付与効果（ジャンプ中・ボス・無傷の敵）とレジェンドが乗る。会心したかを返す
 let stompHit = false;
-export function hit(e, base, noProc, skill){
+// sCrit：スキルの会心（強化スキル「鋭さ」）。数字を黄色にする
+export function hit(e, base, noProc, skill, sCrit){
   if (!alive(e)) return false;
   const st = R.st, U = x => st.uniq.has(x);
   const crit = !skill && Math.random() < st.critC;
@@ -676,16 +705,18 @@ export function hit(e, base, noProc, skill){
     if (e.type === 'boss') mul *= 1 + st.bossDmg/100;
     if (e.hp >= e.maxHp) mul *= 1 + st.firstHit/100;
     if (crit && e.type === 'boss' && U('hawk')) mul *= 1.5;
+    if (R.sk.slowT > 0) mul *= R.sk.evo.time ? 1.4 : 1.25;   // 時の砂：遅くなっている敵には装備の攻撃もよく効く
     // 盾兵：地上から正面への装備の攻撃は 20% に（空中から・踏みつけ・スキルは通る）
     if (e.type === 'shield' && !stompHit && R.p.y > GY - 14 && e.x > PX - 4){
       mul *= 0.2;
       if (!(e.guardT > R.t)){ e.guardT = R.t + 0.4; addText(e.x - 10, e.y - e.h - 2, 'ガード', '#b8c4cc', false, 0.5, true); R.fx.push({kind:'ring', x:e.x - e.w/2, y:e.y - e.h/2, r:8, t:0.15, max:0.15, c:'220,230,240'}); }
     }
   }
+  if (skill && R.sk.slowT > 0) mul *= R.sk.evo.time ? 1.4 : 1.25;
   const d = base * (crit ? st.critM : 1) * res * mul;
   e.hp -= d; e.hitFlash = 0.08;
   if (e.type !== 'boss' && e.type !== 'chest') e.x += 3;   // 軽いノックバック
-  addText(e.x + rnd(-6,6), e.y - e.h - 4, Math.round(d), crit ? '#ffe14d' : !skill ? '#ffffff' : res < 1 ? '#8e9aa3' : '#d8e4ff', crit, 0.7, skill);
+  addText(e.x + rnd(-6,6), e.y - e.h - 4, Math.round(d), crit || sCrit ? '#ffe14d' : !skill ? '#ffffff' : res < 1 ? '#8e9aa3' : '#d8e4ff', crit, 0.7, skill && !sCrit);
   if (crit){ shake(0.08, 2); sfx('crit'); } else if (!skill) sfx('hit');
   if (st.leech > 0) R.p.hp = Math.min(R.p.maxHp, R.p.hp + d*st.leech/100);
   if (!noProc){
@@ -735,7 +766,7 @@ const KILL_C = {slime:'#6ccf5e', mini:'#6ccf5e', bigslime:'#5fb6e8', bat:'#8a5cc
   mole:'#8a6a4a', bomber:'#ff8a5a', ghost:'#dfe8ff', chest:'#ffd36b'};
 function onKill(e){
   e.dead = true; R.kills++;
-  const g = Math.round(e.gold * (1 + e.lv*0.35) * (1 + R.st.gold/100));
+  const g = Math.round(e.gold * (1 + e.lv*0.35) * (1 + R.st.gold/100) * R.goldMul);
   R.gold += g; SAVE.gold += g;
   const [cx,cy] = ecenter(e);
   const xp = e.summon ? 1 : (XP[e.type] || 0) * (e.elite ? ELITE.xp : 1);
@@ -761,7 +792,7 @@ function onKill(e){
   if (e.type === 'bomber') explode(cx, cy, 55, R.st.finalDmg*1.5, true, true);   // 先に倒すと、周りの敵を巻き込んで爆発
   if (e.type === 'chest'){
     feedLine(`<span style="color:#ffd36b">宝箱：+${fmt(g)}G</span>`);
-    if (Math.random() < 0.35 * (1 + R.st.drop/100)) drop(e, e.lv, 1);
+    if (Math.random() < 0.35 * (1 + R.st.drop/100) * R.lootMul) drop(e, e.lv, 1);
   }
   if (e.type==='boss'){
     R.hitstop = Math.max(R.hitstop, 0.3);
@@ -769,31 +800,34 @@ function onKill(e){
     sfx('bosskill');
     const n = R.cpRun ? CP_RULE.bossDrops : CP_RULE.fullBossDrops;
     for (let i = 0; i < n; i++) drop(e, e.lv + 1, 2);
-    R.bossLog.push({id:e.boss, at:R.nextBoss, sec:Math.round(e.fightT)});
+    R.bossLog.push({id:e.boss, at:R.nextBoss, sec:Math.round(e.fightT), hits:R.bossHits});
+    if (!R.bossHits){ R.flawless++; R.banner = {t:2.6, txt:'ノーダメージ撃破！', c:'#7fe8ff'}; }
     R.boss = null;
     R.eshots = [];
-    R.p.hp = Math.min(R.p.maxHp, R.p.hp + R.p.maxHp*0.3);
+    R.p.hp = Math.min(R.p.maxHp, R.p.hp + R.p.maxHp*(R.healBoss ? 1 : 0.3));
     const P = SAVE.prog, b = R.nextBoss;
     if (b >= CLEAR_DIST){
-      // 踏破：0mから走ったときは報酬（エピック以上を1つ）
+      // 踏破：0mから走ったときは報酬（エピック以上を1つ）。日替わりは進み具合（難易度の解放）に数えない
       if (!R.cpRun) drop(e, e.lv + 2, 3);
-      R.clearNew = P.maxDiff === R.diff && R.diff < DIFF_MAX;
-      P.clears[R.diff] = (P.clears[R.diff] || 0) + 1;
-      if (R.clearNew){ P.maxDiff = R.diff + 1; P.cp[R.diff + 1] = 0; P.best[R.diff + 1] = 0; }
+      if (!R.daily){
+        R.clearNew = P.maxDiff === R.diff && R.diff < DIFF_MAX;
+        P.clears[R.diff] = (P.clears[R.diff] || 0) + 1;
+        if (R.clearNew){ P.maxDiff = R.diff + 1; P.cp[R.diff + 1] = 0; P.best[R.diff + 1] = 0; }
+      }
       saveGame();
       R.clearT = 1.2;   // 少し余韻を見せてから結果へ（step の中で数える）
       R.banner = {t:3, txt:'踏破！', c:'#ffd36b'};
       return;
     }
-    P.cp[R.diff] = Math.max(P.cp[R.diff] || 0, b);
+    if (!R.daily) P.cp[R.diff] = Math.max(P.cp[R.diff] || 0, b);
     R.nextBoss += 500;
-    R.banner = {t:2.6, txt:`ボス撃破！ → ${zone().n}`};
+    if (R.bossHits) R.banner = {t:2.6, txt:`ボス撃破！ → ${zone().n}`};
     saveGame();
   } else {
     R.hitstop = Math.max(R.hitstop, 0.035);
     sfx('kill');
-    if (e.elite){ drop(e, e.lv + 2, 2); R.banner = {t:1.4, txt:'エリート撃破！', c:'#ffd36b'}; }
-    else if (e.type !== 'chest' && Math.random() < (e.type==='mini' ? 0.005 : 0.09) * (1 + R.st.drop/100) * (R.cpRun ? CP_RULE.dropMul : 1)) drop(e, e.lv, 0);
+    if (e.elite){ R.eliteKills++; drop(e, e.lv + 2, 2); R.banner = {t:1.4, txt:'エリート撃破！', c:'#ffd36b'}; }
+    else if (e.type !== 'chest' && Math.random() < (e.type==='mini' ? 0.005 : 0.09) * (1 + R.st.drop/100) * (R.cpRun ? CP_RULE.dropMul : 1) * R.lootMul * (R.sk.dropMul || 1)) drop(e, e.lv, 0);
   }
 }
 // 装備による落雷（ボスにも当たる）
@@ -843,9 +877,11 @@ function drop(e, ilvl, minR){
 function hurtPlayer(d, src, inv = 0.8, minPct = 0){
   const p = R.p, st = R.st;
   if (p.inv > 0 || R.over) return;
+  if (absorbHit()) return;   // スキル「障壁」
   // 回避
   if (Math.random() < st.dodgeC){ p.inv = 0.3; addText(PX, p.y - 40, '回避', '#9fe3ff', true); return; }
-  const dd = Math.max(d * (1 - st.defRed), p.maxHp * minPct);
+  const dd = Math.max(d * (1 - st.defRed) * (st.taken ?? 1), p.maxHp * minPct);   // taken：強化スキル「守り」
+  if (R.boss) R.bossHits++;
   p.hp -= dd; p.inv = inv * st.invMul;
   // 反撃（棘の鎧・鉄壁セット・付与効果）
   if (st.thorns){
@@ -895,20 +931,26 @@ function endRun(retreat, reason){
   SAVE.runs++;
   const dist = Math.floor(R.dist), P = SAVE.prog;
   SAVE.best = Math.max(SAVE.best, dist);
-  P.best[R.diff] = Math.max(P.best[R.diff] || 0, dist);
-  saveGame();
+  if (!R.daily) P.best[R.diff] = Math.max(P.best[R.diff] || 0, dist);
+  const rec = recordRun(R);   // 記録・実績・日替わりの報酬（保存もする）
   const loot = [...R.loot].sort((a,b) => b.r - a.r || b.ilvl - a.ilvl);
   const lootHTML = loot.length ? loot.map(it => `<div><b style="color:${RAR[it.r].c}">${RAR[it.r].n}</b> <span style="color:${RAR[it.r].c}">${it.name}</span> <small style="color:var(--muted)">Lv${it.ilvl}</small></div>`).join('')
     : '<div style="color:var(--muted);text-align:center">装備は拾えなかった</div>';
   const boss = R.boss && BOSSES[R.boss.boss];
-  const title = retreat ? '撤退した' : reason === 'clear' ? `踏破！${R.diff > 1 ? `（難易度${R.diff}）` : ''}` : reason === 'boss' ? `${boss ? boss.n : 'ボス'}を倒しきれなかった…` : '力尽きた…';
+  const title = (R.daily ? '日替わり：' : '') + (retreat ? '撤退した' : reason === 'clear' ? `踏破！${R.diff > 1 ? `（難易度${R.diff}）` : ''}` : reason === 'boss' ? `${boss ? boss.n : 'ボス'}を倒しきれなかった…` : '力尽きた…');
   let note = '';
   if (reason === 'boss') note = 'ボスは70秒以内に倒す必要がある。ボスにはスキルが効かないので、装備（武器）を鍛えよう。';
   if (reason === 'clear') note = (R.clearNew ? `<b style="color:var(--accent)">難易度${R.diff + 1} が解放された！</b> 敵は強くなるが、アイテムLvの上限と付与効果の階級の上限が上がる。<br>` : '')
     + (R.cpRun ? '途中から出撃したので、踏破報酬はなし。' : '0mからの踏破報酬：エピック以上の装備を1つ。');
+  // 日替わりの節目の報酬・新しく達成した実績
+  const extra = [
+    ...rec.daily.map(x => `<div>日替わり ${x.at}m の報酬：<b class="gold">${rewardText({g:x.g, m:x.m})}</b></div>`),
+    ...rec.ach.map(a => `<div>実績「<b style="color:var(--accent)">${a.n}</b>」達成！（拠点の「実績」で受け取る）</div>`),
+  ].join('');
   setTimeout(() => dialog(`
     <h2>${title}</h2>
     ${note ? `<p class="sksum">${note}</p>` : ''}
+    ${extra ? `<div class="sksum extra">${extra}</div>` : ''}
     <div class="res">
       <div class="stat"><small>到達</small><b>${fmt(R.dist)}m</b></div>
       <div class="stat"><small>撃破</small><b>${R.kills}</b></div>
@@ -922,7 +964,7 @@ function endRun(retreat, reason){
 export function pauseRun(){
   if (!R || R.over || R.paused || R.levelup) return;   // レベルアップの3択中はそれ自体が止まっている
   R.paused = true; R.p.hold = false;
-  dialog(`<h2>一時停止</h2><p style="color:var(--muted);font-size:13px">${R.diff > 1 ? `難易度${R.diff} ・ ` : ''}${fmt(R.dist)}m ・ 拾った装備 ${R.loot.length}個</p>
+  dialog(`<h2>一時停止</h2><p style="color:var(--muted);font-size:13px">${R.daily ? `日替わり（${R.daily.mods.map(m => DAILY_MODS[m].n).join('・')}）・ ` : ''}${R.diff > 1 ? `難易度${R.diff} ・ ` : ''}${fmt(R.dist)}m ・ 拾った装備 ${R.loot.length}個</p>
     <p class="sksum">${skillSummary()}</p>
     <div class="btns"><button class="primary" id="dResume">再開</button><button id="dRetreat">撤退する（拾った装備は持ち帰る）</button></div>`);
   $('dResume').onclick = () => { closeDialog(); R.paused = false; lastT = performance.now(); unlockAudio(); };

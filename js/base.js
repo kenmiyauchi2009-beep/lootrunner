@@ -7,6 +7,9 @@ import { affRange, tierRange, fmtNum, fmtAff, affGrade, baseStats, computeStats,
 import { SAVE, saveGame } from './save.js';
 import { closeModal, dialog, closeDialog, toast } from './ui.js';
 import { startRun } from './run.js';
+import { renderHub } from './hub.js';
+import { ACTIVES, PASSIVES, unlocked } from './skills.js';
+import { TRAIN } from './meta.js';
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]));
 const costText = c => `${fmt(c.gold)}G${c.mat ? `＋${MATS[c.mat.r]}×${c.mat.n}` : ''}`;
@@ -67,6 +70,7 @@ export function renderBase(){
   $('bInv').innerHTML = (list.length ? list.map(it => itemRowHTML(it, diffHTML(gain.get(it)))).join('')
     : `<div class="empty">${SAVE.inv.length ? '条件に合う装備がない。' : 'まだ何もない。出撃して装備を拾おう。'}</div>`)
     + (hidden ? `<div class="empty">絞り込みで ${hidden}個 を隠しています</div>` : '');
+  renderHub();
 }
 function setLineHTML(id, n){
   const S = SETS[id];
@@ -267,10 +271,20 @@ export function openCodex(){
       <small>${[2,3,4].map(k => `${k}個：${Object.keys(got).length ? S.b[k] : '？？？'}`).join('<br>')}</small>
       <div class="pieces">${['weapon','head','body','charm'].map(sl => `<span class="${got[sl] ? 'got' : ''}">${SLOT_N[sl]}</span>`).join('')}</div></div>`;
   }).join('');
+  // スキル：解放したもの・見た進化
+  const trainAt = id => TRAIN.findIndex(t => t && t.sk && t.sk.includes(id));
+  const skills = Object.entries(ACTIVES).map(([id, A]) => {
+    if (!unlocked(id)) return `<div class="cx no"><b>？？？</b><small>訓練所 Lv${trainAt(id)} で解放</small></div>`;
+    const ev = SAVE.skill.evo[id];
+    return `<div class="cx"><b style="color:${A.c}">${A.n}</b>${SAVE.skill.seen[id] ? '' : '（まだ選んでいない）'}
+      <small>進化：${ev ? `<b style="color:${A.c}">${A.evo.n}</b> ― ${A.evo.desc}` : `？？？（Lv5＋${unlocked(A.evo.need) ? PASSIVES[A.evo.need].n : '？？？'}）`}</small></div>`;
+  }).join('');
+  const nEvo = Object.keys(SAVE.skill.evo).length;
   $('sheet').style.setProperty('--rc', 'var(--text)');
-  $('sheet').innerHTML = `<h3>図鑑</h3><div class="sub">レジェンド ${found}/${UNIQUES.length} ・ セットは見つけた部位に色がつく</div>
-    <div class="codex"><h4>レジェンド</h4>${legends}<h4>セット</h4>${sets}</div>
+  $('sheet').innerHTML = `<h3>図鑑</h3><div class="sub">レジェンド ${found}/${UNIQUES.length} ・ 進化 ${nEvo}/12 ・ セットは見つけた部位に色がつく</div>
+    <div class="codex"><h4>レジェンド</h4>${legends}<h4>セット</h4>${sets}<h4>スキルと進化</h4>${skills}</div>
     <div class="actions"><button class="wide" id="aClose">閉じる</button></div>`;
   $('modal').classList.remove('hidden');
+  $('sheet').scrollTop = 0;
   $('aClose').onclick = closeModal;
 }

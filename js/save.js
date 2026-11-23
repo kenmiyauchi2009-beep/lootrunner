@@ -1,11 +1,11 @@
 // セーブ（localStorage）。読み書きはすべて try/catch で囲む。
-import { RAR, WTYPES, AFFIX, uniqueOf, SETS, EQUIP_SLOTS, slotOfKey, INV_BASE, INV_LIMIT, DIFF_MAX, CLEAR_DIST } from './data.js';
+import { RAR, WTYPES, AFFIX, uniqueOf, SETS, EQUIP_SLOTS, slotOfKey, INV_BASE, INV_LIMIT, DIFF_MAX, CLEAR_DIST, FAC_MAX } from './data.js';
 import { genItem, tierFromValue } from './items.js';
 import { toast } from './ui.js';
 
 // キー名は試作のまま（変えると既存のセーブが見えなくなる）。形式の版は中身の v で管理する。
 export const SKEY = 'lootrunner-save-v1';
-export const SAVE_VERSION = 4;
+export const SAVE_VERSION = 5;
 const EXPORT_PREFIX = 'LOOTRUNNER1:';
 const SLOTS = ['weapon', 'head', 'body', 'charm'];
 
@@ -15,7 +15,7 @@ let lastWritten = null;   // 最後に書き込んだ文字列。中身が変わ
 let failToastAt = 0;
 
 export function newSave(){
-  SAVE = {v:SAVE_VERSION, gold:0, best:0, runs:0, nextId:1, inv:[], equip:emptyEquip(), sort:'power', settings:{}, ...v3Fields(), prog:newProg()};
+  SAVE = {v:SAVE_VERSION, gold:0, best:0, runs:0, nextId:1, inv:[], equip:emptyEquip(), sort:'power', settings:{}, ...v3Fields(), prog:newProg(), ...v5Fields()};
   const w = genItem(1, 0, 0, {slot:'weapon', type:'sword', r:0});
   w.q = 1; w.isNew = false;
   SAVE.equip.weapon = w;
@@ -26,6 +26,13 @@ const emptyEquip = () => ({weapon:null, head:null, body:null, charm1:null, charm
 const v3Fields = () => ({mats:[0,0,0,0,0], invMax:INV_BASE, autoSalv:-1, filter:{slot:'all', r:0}, codex:{u:{}, s:{}}});
 // v4：進み具合。maxDiff：解放した難易度 / cp[難易度]：倒したボスの位置（チェックポイント）/ best[難易度]：最高距離 / diff・start：前回の選択
 const newProg = () => ({maxDiff:1, diff:1, start:0, cp:{1:0}, best:{1:0}, clears:{}, foes:{}});
+// v5：やり込み要素。fac：施設のLv / ach：実績（1＝達成・2＝受け取り済み）/ skill：見たスキル・進化・最初のスキル / daily：日替わり / stats：記録
+const FAC_IDS = Object.keys(FAC_MAX);
+export const STAT_KEYS = ['kills', 'gold', 'time', 'dist', 'bosses', 'elites', 'stomps', 'jumps', 'items', 'deaths', 'retreats',
+  'maxKills', 'maxLv', 'flawless', 'evos', 'smith', 'upMax', 't6', 'facUps', 'dailies', 'dailyClears'];
+const newStats = () => ({...Object.fromEntries(STAT_KEYS.map(k => [k, 0])), bossKinds:{}});
+const v5Fields = () => ({fac:Object.fromEntries(FAC_IDS.map(k => [k, 0])), ach:{}, skill:{seen:{}, evo:{}, start:'', off:{}},
+  daily:{key:'', best:0, got:[], tries:0, clear:false, hist:{}}, stats:newStats()});
 
 // ---------- 移行処理 ----------
 // MIGRATIONS[n] は v(n) → v(n+1) の変換。形式を変えるときは SAVE_VERSION を上げてここに足す。
@@ -57,6 +64,18 @@ const MIGRATIONS = {
     d.prog.best[1] = Math.min(best, CLEAR_DIST);
     if (best > CLEAR_DIST){ d.prog.maxDiff = 2; d.prog.cp[2] = 0; d.prog.best[2] = 0; d.prog.clears[1] = 1; }
     if (best > 0) d.prog.foes = {bat:1, thrower:1, mini:1};   // もう知っている敵には説明を出さない
+  },
+  // v4 → v5：施設・実績・記録・日替わり。記録はわかる分だけ今までのデータから埋める（撃破数などはこの版から数える）
+  4(d){
+    Object.assign(d, v5Fields());
+    const st = d.stats, P = d.prog || {}, cp1 = (P.cp && P.cp[1]) || 0;
+    const kinds = ['kingslime', 'golem', 'witch', 'dragon'];
+    const cleared = Object.keys(P.clears || {}).length > 0;
+    kinds.slice(0, cleared ? 4 : cp1 / 500).forEach(k => { st.bossKinds[k] = 1; });
+    st.bosses = Object.keys(st.bossKinds).length;
+    const up = Math.max(0, ...[...(d.inv || []), ...Object.values(d.equip || {})].map(it => it && Number.isFinite(it.up) ? it.up : 0));
+    st.upMax = up;
+    st.t6 = [...(d.inv || []), ...Object.values(d.equip || {})].some(it => it && Array.isArray(it.aff) && it.aff.some(a => a && a.t >= 6)) ? 1 : 0;
   },
 };
 
@@ -116,6 +135,21 @@ function sanitize(d){
   const foes = {};
   for (const [k, v] of Object.entries(obj(pr.foes))) if (typeof k === 'string' && k.length < 20) foes[k] = 1;
   d.prog = {maxDiff, diff, start:[0, 500, 1000, 1500].includes(pr.start) && pr.start <= cp[diff] ? pr.start : 0, cp, best, clears, foes};
+  // v5
+  const fac = obj(d.fac);
+  d.fac = Object.fromEntries(FAC_IDS.map(k => [k, Math.min(FAC_MAX[k], Math.max(0, Math.floor(num(fac[k]))))]));
+  const ach = {};
+  for (const [k, v] of Object.entries(obj(d.ach))) if (k.length < 20 && (v === 1 || v === 2)) ach[k] = v;
+  d.ach = ach;
+  const sk = obj(d.skill), flags = o => Object.fromEntries(Object.keys(obj(o)).filter(k => k.length < 20).map(k => [k, 1]));
+  d.skill = {seen:flags(sk.seen), evo:flags(sk.evo), start:typeof sk.start === 'string' && sk.start.length < 20 ? sk.start : '', off:flags(sk.off)};
+  const dl = obj(d.daily), hist = {};
+  for (const [k, v] of Object.entries(obj(dl.hist))) if (/^\d{4}-\d{2}-\d{2}$/.test(k) && v && typeof v === 'object')
+    hist[k] = {best:Math.max(0, num(v.best)), clear:!!v.clear, tries:Math.max(0, Math.floor(num(v.tries))), mods:Array.isArray(v.mods) ? v.mods.filter(m => typeof m === 'string').slice(0, 4) : [], diff:Math.max(1, Math.floor(num(v.diff)) || 1)};
+  d.daily = {key:typeof dl.key === 'string' ? dl.key : '', best:Math.max(0, num(dl.best)), got:Array.isArray(dl.got) ? dl.got.filter(x => [500, 1000, 1500, 2000].includes(x)) : [],
+    tries:Math.max(0, Math.floor(num(dl.tries))), clear:!!dl.clear, hist};
+  const st = obj(d.stats);
+  d.stats = {...Object.fromEntries(STAT_KEYS.map(k => [k, Math.max(0, num(st[k]))])), bossKinds:flags(st.bossKinds)};
   return d;
 }
 
