@@ -1,11 +1,11 @@
 // セーブ（localStorage）。読み書きはすべて try/catch で囲む。
-import { RAR, WTYPES, AFFIX, uniqueOf, SETS, EQUIP_SLOTS, slotOfKey, INV_BASE, INV_LIMIT } from './data.js';
+import { RAR, WTYPES, AFFIX, uniqueOf, SETS, EQUIP_SLOTS, slotOfKey, INV_BASE, INV_LIMIT, DIFF_MAX, CLEAR_DIST } from './data.js';
 import { genItem, tierFromValue } from './items.js';
 import { toast } from './ui.js';
 
 // キー名は試作のまま（変えると既存のセーブが見えなくなる）。形式の版は中身の v で管理する。
 export const SKEY = 'lootrunner-save-v1';
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 const EXPORT_PREFIX = 'LOOTRUNNER1:';
 const SLOTS = ['weapon', 'head', 'body', 'charm'];
 
@@ -15,7 +15,7 @@ let lastWritten = null;   // 最後に書き込んだ文字列。中身が変わ
 let failToastAt = 0;
 
 export function newSave(){
-  SAVE = {v:SAVE_VERSION, gold:0, best:0, runs:0, nextId:1, inv:[], equip:emptyEquip(), sort:'power', settings:{}, ...v3Fields()};
+  SAVE = {v:SAVE_VERSION, gold:0, best:0, runs:0, nextId:1, inv:[], equip:emptyEquip(), sort:'power', settings:{}, ...v3Fields(), prog:newProg()};
   const w = genItem(1, 0, 0, {slot:'weapon', type:'sword', r:0});
   w.q = 1; w.isNew = false;
   SAVE.equip.weapon = w;
@@ -24,6 +24,8 @@ export function newSave(){
 const emptyEquip = () => ({weapon:null, head:null, body:null, charm1:null, charm2:null});
 // v3 で増えた欄（素材・所持枠・自動分解・絞り込み・図鑑）
 const v3Fields = () => ({mats:[0,0,0,0,0], invMax:INV_BASE, autoSalv:-1, filter:{slot:'all', r:0}, codex:{u:{}, s:{}}});
+// v4：進み具合。maxDiff：解放した難易度 / cp[難易度]：倒したボスの位置（チェックポイント）/ best[難易度]：最高距離 / diff・start：前回の選択
+const newProg = () => ({maxDiff:1, diff:1, start:0, cp:{1:0}, best:{1:0}, clears:{}, foes:{}});
 
 // ---------- 移行処理 ----------
 // MIGRATIONS[n] は v(n) → v(n+1) の変換。形式を変えるときは SAVE_VERSION を上げてここに足す。
@@ -47,6 +49,15 @@ const MIGRATIONS = {
     Object.assign(d, v3Fields(), {sort:d.sort});
     for (const it of [...(d.inv || []), ...Object.values(d.equip)]) if (it && it.uniq) d.codex.u[it.uniq] = 1;
   },
+  // v3 → v4：難易度とチェックポイント。これまでの最高距離から、倒したボス（距離がボスの位置を超えていれば倒している）を決める
+  3(d){
+    const best = Number.isFinite(d.best) ? d.best : 0;
+    d.prog = newProg();
+    d.prog.cp[1] = [1500, 1000, 500].find(b => best > b) || 0;
+    d.prog.best[1] = Math.min(best, CLEAR_DIST);
+    if (best > CLEAR_DIST){ d.prog.maxDiff = 2; d.prog.cp[2] = 0; d.prog.best[2] = 0; d.prog.clears[1] = 1; }
+    if (best > 0) d.prog.foes = {bat:1, thrower:1, mini:1};   // もう知っている敵には説明を出さない
+  },
 };
 
 export function migrate(d){
@@ -66,7 +77,8 @@ function validItem(it){
   if (it.slot === 'weapon' ? !WTYPES[it.type] : it.type !== it.slot) return false;
   if (!Number.isFinite(it.ilvl) || !Number.isFinite(it.q)) return false;
   it.aff = Array.isArray(it.aff) ? it.aff.filter(a => a && AFFIX[a.k] && Number.isFinite(a.v)) : [];
-  for (const a of it.aff) if (!Number.isInteger(a.t) || a.t < 1 || a.t > 5) a.t = tierFromValue(it, a);
+  if (it.tc !== 6 && it.tc !== 7) delete it.tc;
+  for (const a of it.aff) if (!Number.isInteger(a.t) || a.t < 1 || a.t > (it.tc || 5)) a.t = tierFromValue(it, a);
   it.up = Number.isFinite(it.up) ? it.up : 0;
   if (it.uniq && !uniqueOf(it.uniq)) delete it.uniq;
   if (it.set && !SETS[it.set]) delete it.set;
@@ -92,6 +104,18 @@ function sanitize(d){
   d.filter = {slot:['all', 'weapon', 'head', 'body', 'charm'].includes(f.slot) ? f.slot : 'all', r:[0, 1, 2, 3, 4].includes(f.r) ? f.r : 0};
   const c = d.codex && typeof d.codex === 'object' ? d.codex : {};
   d.codex = {u:c.u && typeof c.u === 'object' ? c.u : {}, s:c.s && typeof c.s === 'object' ? c.s : {}};
+  const pr = d.prog && typeof d.prog === 'object' ? d.prog : {}, obj = x => x && typeof x === 'object' && !Array.isArray(x) ? x : {};
+  const maxDiff = Math.min(DIFF_MAX, Math.max(1, Math.floor(num(pr.maxDiff)) || 1));
+  const cp = {}, best = {}, clears = {};
+  for (let k = 1; k <= maxDiff; k++){
+    cp[k] = [0, 500, 1000, 1500].includes(obj(pr.cp)[k]) ? obj(pr.cp)[k] : 0;
+    best[k] = Math.max(0, num(obj(pr.best)[k]));
+    if (obj(pr.clears)[k]) clears[k] = Math.max(1, Math.floor(num(obj(pr.clears)[k])));
+  }
+  const diff = Math.min(maxDiff, Math.max(1, Math.floor(num(pr.diff)) || 1));
+  const foes = {};
+  for (const [k, v] of Object.entries(obj(pr.foes))) if (typeof k === 'string' && k.length < 20) foes[k] = 1;
+  d.prog = {maxDiff, diff, start:[0, 500, 1000, 1500].includes(pr.start) && pr.start <= cp[diff] ? pr.start : 0, cp, best, clears, foes};
   return d;
 }
 

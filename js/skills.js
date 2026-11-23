@@ -4,7 +4,7 @@
 //   装備　＝本体の強さ。武器の攻撃・踏みつけ・会心・HP・防御。大きい敵を倒し、深いところで耐えるのに必要
 import { $ } from './util.js';
 import { SAVE } from './save.js';
-import { R, PX, GY, VW, VTOP, hit, explode, burst, shake, ecenter, resumeClock, elv, hpScale } from './run.js';
+import { R, PX, GY, VW, VTOP, hit, explode, burst, shake, ecenter, resumeClock, foeHp } from './run.js';
 import { dialog, closeDialog } from './ui.js';
 import { sfx } from './audio.js';
 
@@ -35,7 +35,7 @@ export const PASSIVES = {
 const MAX_SLOTS = 4;
 export const xpNeed = lv => Math.round(5 + lv*3 + Math.pow(lv, 1.8));
 // 敵ごとの経験値
-export const XP = {mini:1, slime:2, bat:2, thrower:4, boss:30};
+export const XP = {mini:1, slime:2, bat:2, thrower:4, shield:3, boar:3, bigslime:3, mole:3, bomber:2, ghost:2, chest:0, boss:30};
 
 export function initSkills(){
   R.sk = {lv:1, xp:0, need:xpNeed(1), act:{}, pas:{}, evo:{}, cd:{}, ang:0, blades:[], patches:[], flasks:[], meteors:[], gems:[], pending:0, choices:null};
@@ -46,7 +46,7 @@ function mods(){
 }
 // スキルの基本ダメージ。装備ではなく敵のレベルに合わせて伸びる（群れの敵を数発で倒せる強さ）
 export const SKILL_BASE = 8;
-export const skillDmg = () => SKILL_BASE * hpScale(elv()) * (1 + 0.12*(R.sk.pas.might||0));
+export const skillDmg = () => SKILL_BASE * foeHp() * (1 + 0.12*(R.sk.pas.might||0));
 // 強化スキルのうち、本体（装備側）に関わるのは踏みつけだけ
 export function applyPassives(){
   R.st.stompMul = 1 + 0.4*(R.sk.pas.spring||0);
@@ -55,6 +55,12 @@ export function applyPassives(){
 // ---------- 経験値 ----------
 export function dropGem(x, y, v){
   R.sk.gems.push({x, y, v, t:0, vx:(Math.random() - 0.5)*80, vy:-120 - Math.random()*60});
+}
+// チェックポイントから出撃したとき：lv までのレベルアップをまとめて選ぶ
+export function catchUp(lv){
+  const S = R.sk;
+  while (S.lv < lv){ S.lv++; S.pending++; }
+  S.need = xpNeed(S.lv);
 }
 export function gainXp(v){
   const S = R.sk;
@@ -86,7 +92,7 @@ function cdOf(id){
   if (id==='frost') return ev ? 2.0 : ACTIVES.frost.cd[lvOf(id)];
   return 1;
 }
-const alive = e => !e.dead && e.hp > 0;
+const alive = e => !e.dead && e.hp > 0 && !e.under;
 const onGround = e => GY - e.y < 35;
 
 export function updateSkills(dt, scroll){

@@ -92,13 +92,43 @@ export const MATS = ['欠片','結晶','宝玉','秘石','星核'];
 export const INV_BASE = 60, INV_LIMIT = 150;
 export const invExpandCost = max => Math.round(800 * Math.pow(2, (max - INV_BASE) / 10));
 
-// 冒険のエリア
+// 冒険のエリア（500mごと。4つ目のボスを倒すと「踏破」）
+//   foes：出現する敵の重み（[重み, 出始める距離（エリアの頭から）]）・boss：エリアのボス・gim：エリアの仕掛け
 export const ZONES = [
-  {n:'みどりの丘',   sky:['#8fd3f4','#d8f1ff'], far:'#a7cdbf', near:'#6aa77f', ground:'#5b8c4a', dirt:'#4a6f3c'},
-  {n:'夕焼けの荒野', sky:['#f08d5a','#ffd9a8'], far:'#d49a76', near:'#a8694f', ground:'#8a5a3c', dirt:'#6f4630'},
-  {n:'月夜の森',     sky:['#16224a','#45568a'], far:'#2c3c6a', near:'#203553', cloud:'rgba(180,200,255,.12)', ground:'#2c4a3e', dirt:'#1f362d'},
-  {n:'灼熱の火山',   sky:['#2e1010','#8a2c1c'], far:'#5a2020', near:'#3f1616', cloud:'rgba(60,40,40,.5)', ground:'#3a2a26', dirt:'#2a1d1a'},
+  {n:'みどりの丘',   sky:['#8fd3f4','#d8f1ff'], far:'#a7cdbf', near:'#6aa77f', ground:'#5b8c4a', dirt:'#4a6f3c',
+   foes:{slime:[50,0], bat:[28,60], bigslime:[14,220], boar:[14,300]}, boss:'kingslime', gim:'chest', gn:'宝箱'},
+  {n:'夕焼けの荒野', sky:['#f08d5a','#ffd9a8'], far:'#d49a76', near:'#a8694f', ground:'#8a5a3c', dirt:'#6f4630',
+   foes:{slime:[16,0], thrower:[24,0], boar:[22,0], mole:[20,0], shield:[18,120]}, boss:'golem', gim:'sand', gn:'流砂'},
+  {n:'月夜の森',     sky:['#16224a','#45568a'], far:'#2c3c6a', near:'#203553', cloud:'rgba(180,200,255,.12)', ground:'#2c4a3e', dirt:'#1f362d',
+   foes:{bat:[22,0], ghost:[26,0], shield:[18,0], bigslime:[16,0], mole:[14,0], thrower:[8,0]}, boss:'witch', gim:'fog', gn:'霧'},
+  {n:'灼熱の火山',   sky:['#2e1010','#8a2c1c'], far:'#5a2020', near:'#3f1616', cloud:'rgba(60,40,40,.5)', ground:'#3a2a26', dirt:'#2a1d1a',
+   foes:{bomber:[24,0], thrower:[16,0], boar:[18,0], shield:[16,0], ghost:[12,0], bat:[10,0]}, boss:'dragon', gim:'lava', gn:'火柱'},
 ];
+export const CLEAR_DIST = 2000;   // 4体目のボスの位置。倒すと踏破
+// 難易度：踏破すると次が解放。1段ごとに敵のHP×1.8・攻撃力×1.3。
+// 敵Lv（＝拾う装備のアイテムLv）が5ずつ上がり、付与効果の上位の階級（T6・T7）が出るようになる
+export const DIFF_MAX = 5;
+export const diffInfo = d => ({lvOff:(d - 1)*5, hpMul:Math.pow(1.8, d - 1), dmgMul:Math.pow(1.3, d - 1), tierCap:Math.min(7, 4 + d), ilvlMax:22 + (d - 1)*5});
+// チェックポイント：倒したボスの位置から出撃できる。ただし0mから走る方がドロップが多い
+export const CP_RULE = {dropMul:0.5, bossDrops:1, fullBossDrops:2};
+
+// 敵の名前（ログ・図鑑・被弾の記録用）
+export const FOE_N = {mini:'小スライム', slime:'スライム', bat:'コウモリ', thrower:'投石兵', shield:'盾兵', boar:'突進イノシシ',
+  bigslime:'大スライム', mole:'もぐら', bomber:'自爆ボム', ghost:'さまよう霊', chest:'宝箱'};
+// エリート：まれに出る強い敵。特性を1〜2個持ち、良い装備を必ず落とす
+export const ELITE_MODS = {
+  fast:  {n:'速い',   d:'動きが1.6倍'},
+  tough: {n:'硬い',   d:'HPがさらに2倍'},
+  spiky: {n:'トゲ',   d:'踏むと反撃される（跳び越えるか倒す）'},
+  regen: {n:'再生',   d:'HPが毎秒5%回復'},
+};
+// エリアのボス。atk：使う攻撃（第2形態＝HP50%以下で p2 に変わる）
+export const BOSSES = {
+  kingslime:{n:'キングスライム', w:62, h:50, atk:['hop','spit'],      p2:['bighop','spit','hop']},
+  golem:    {n:'岩石ゴーレム',   w:56, h:70, atk:['rocks','hop'],     p2:['boulder','rocks','bighop']},
+  witch:    {n:'森の魔女',       w:34, h:54, fly:16, atk:['orbs','summon'], p2:['orbs','orbs','summon']},
+  dragon:   {n:'炎竜',           w:66, h:60, atk:['pillars','breath'], p2:['pillars','breath','hop']},
+};
 
 // ドロップの光の柱（レア度ごと）。h:0 は画面の上まで届く
 export const DROP_FX = [

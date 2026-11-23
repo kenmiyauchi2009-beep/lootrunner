@@ -1,6 +1,6 @@
 // 拠点画面（装備・所持品・鍛冶・図鑑）
 import { $, fmt } from './util.js';
-import { RAR, WTYPES, SLOT_N, ICON, AFFIX, UNIQUES, uniqueOf, SETS, MATS, EQUIP_SLOTS, slotOfKey, INV_LIMIT, invExpandCost } from './data.js';
+import { RAR, WTYPES, SLOT_N, ICON, AFFIX, UNIQUES, uniqueOf, SETS, MATS, EQUIP_SLOTS, slotOfKey, INV_LIMIT, invExpandCost, ZONES, diffInfo, CP_RULE } from './data.js';
 import { affRange, tierRange, fmtNum, fmtAff, affGrade, baseStats, computeStats, powerWith, equipKeyFor, equippedKey,
   salvageValue, salvageMats, upgradeCost, rerollCost, valueCost, lockCost, canPay,
   smithUpgrade, smithReroll, smithValue, smithLock, salvage } from './items.js';
@@ -29,7 +29,10 @@ function diffHTML(d){
 export function renderBase(){
   const st = computeStats(SAVE.equip);
   $('bGold').textContent = fmt(SAVE.gold) + ' G';
-  $('bBest').textContent = `最高 ${fmt(SAVE.best)}m`;
+  const P = SAVE.prog;
+  $('bBest').textContent = `${P.maxDiff > 1 ? `難易度${P.diff} ` : ''}最高 ${fmt(P.best[P.diff] || 0)}m`;
+  const cp = P.cp[P.diff] || 0;
+  $('goSub').textContent = P.maxDiff > 1 || cp ? `難易度${P.diff}${P.maxDiff > 1 ? `（${P.maxDiff}まで解放）` : ''} ・ チェックポイント ${cp ? cp + 'mまで' : 'なし'}` : '2000m の4体目のボスを倒すと踏破';
   $('bPower').textContent = fmt(st.power);
   $('bStats').innerHTML = [
     ['DPS(目安)', fmt(st.dps)], ['ボス火力', fmt(st.bossDps)], ['最大HP', fmt(st.hp)],
@@ -81,7 +84,28 @@ $('autoSel').onchange = e => {
   SAVE.autoSalv = Number(e.target.value); saveGame();
   toast(SAVE.autoSalv < 0 ? '自動分解をやめた' : `${['コモン','アンコモン以下','レア以下'][SAVE.autoSalv]}を拾ったら自動で分解する（セット・レジェンド・戦力が上がるものは残す）`);
 };
-$('goBtn').onclick = () => startRun();
+$('goBtn').onclick = openSortie;
+// 出撃の選択：難易度と、どこから走るか（チェックポイント）
+function openSortie(){
+  const P = SAVE.prog;
+  if (P.maxDiff === 1 && !P.cp[1]){ startRun({diff:1, start:0}); return; }
+  let d = P.diff;
+  const show = () => {
+    const D = diffInfo(d), cp = P.cp[d] || 0;
+    const starts = [0, 500, 1000, 1500].filter(s => s <= cp);
+    dialog(`<h2>出撃</h2>
+      ${P.maxDiff > 1 ? `<div class="seg">${Array.from({length:P.maxDiff}, (_, i) => `<button data-d="${i + 1}" class="${i + 1 === d ? 'on' : ''}" aria-pressed="${i + 1 === d}">難易度${i + 1}${P.clears[i + 1] ? ' ✓' : ''}</button>`).join('')}</div>` : ''}
+      <p class="sksum">${d > 1 ? `敵の強さ HP×${D.hpMul.toFixed(1)}・攻撃×${D.dmgMul.toFixed(1)} ・ ` : ''}アイテムLv ${1 + D.lvOff}〜${D.ilvlMax} ・ 付与効果 T${D.tierCap}まで<br>
+        最高 ${fmt(P.best[d] || 0)}m${P.clears[d] ? ` ・ 踏破 ${P.clears[d]}回` : ''}</p>
+      <div class="btns starts">${starts.map(s => `<button class="${s === 0 ? 'primary' : ''}" data-s="${s}">${s ? `${s}m（${ZONES[s/500].n}）から` : '0mから'}
+        <small>${s ? `雑魚のドロップ${Math.round(CP_RULE.dropMul*100)}%・ボスの装備${CP_RULE.bossDrops}個・踏破報酬なし・スキルはその分まとめて選ぶ` : `ボスの装備${CP_RULE.fullBossDrops}個・踏破するとエピック以上を1つ`}</small></button>`).join('')}
+        <button id="dNo">やめる</button></div>`);
+    document.querySelectorAll('#dcard [data-d]').forEach(b => b.onclick = () => { d = Number(b.dataset.d); show(); });
+    document.querySelectorAll('#dcard [data-s]').forEach(b => b.onclick = () => startRun({diff:d, start:Number(b.dataset.s)}));
+    $('dNo').onclick = closeDialog;
+  };
+  show();
+}
 $('codexBtn').onclick = openCodex;
 $('expandBtn').onclick = () => {
   if (SAVE.invMax >= INV_LIMIT) return;
@@ -161,7 +185,7 @@ export function openItem(id){
     return `<button class="aff ${i === selLine ? 'sel' : ''}" data-line="${i}" aria-pressed="${i === selLine}">
       <span class="tier t${A.int ? 0 : a.t}">${A.int ? '固定' : 'T' + a.t}</span>
       <span class="l">${fmtAff(it, a)}<span class="range">${A.int ? '' : `(T${a.t}：${fmtNum(a.k, lo)}〜${fmtNum(a.k, hi)})`}</span>
-      <div class="meter"><i style="width:${Math.round(10 + g*90)}%"></i></div></span></button>`;
+      <div class="meter"><i style="width:${Math.min(100, Math.round(10 + g*90))}%"></i></div></span></button>`;
   }).join('');
   let smith = '';
   if (it.aff.length){

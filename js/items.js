@@ -10,16 +10,18 @@ export function affRange(it, k){
   const m = (a.scale ? 1 + it.ilvl*0.25 : 1) * (1 + it.r*0.08);
   return [a.min*m, a.max*m];
 }
-// 出る階級の上限はアイテムLvで決まる（Lv3でT2、Lv8でT3、Lv13でT4、Lv18でT5）
-export const maxTier = ilvl => Math.min(5, 1 + Math.floor((ilvl + 2) / 5));
-const TIER_W = [30, 25, 20, 15, 10];
+// 出る階級の上限はアイテムLvで決まる（Lv3でT2、Lv8でT3、Lv13でT4、Lv18でT5、Lv23でT6、Lv28でT7）。
+// T6・T7 は難易度2・3以上で拾った装備だけ（it.tc に上限を記録。鍛冶で引き直しても上限は同じ）
+export const tierCap = it => it.tc || 5;
+export const maxTier = (ilvl, cap = 5) => Math.min(cap, 1 + Math.floor((ilvl + 2) / 5));
+const TIER_W = [30, 25, 20, 15, 10, 6, 3];
 function rollTier(it){
-  const w = TIER_W.slice(0, maxTier(it.ilvl));
+  const w = TIER_W.slice(0, maxTier(it.ilvl, tierCap(it)));
   let r = Math.random() * w.reduce((a, b) => a + b, 0), t = 0;
   while ((r -= w[t]) > 0 && t < w.length - 1) t++;
   return t + 1;
 }
-// 階級 t の値の範囲（全体の範囲を5等分）
+// 階級 t の値の範囲（全体の範囲を5等分。T6・T7 は最大値のさらに上）
 export function tierRange(it, k, t){
   const [lo, hi] = affRange(it, k);
   return [lo + (hi - lo)*(t - 1)/5, lo + (hi - lo)*t/5];
@@ -33,7 +35,7 @@ export function rollAff(it, k, t = rollTier(it)){
 // 古いセーブの付与効果（階級なし）に、値から階級をつける
 export function tierFromValue(it, a){
   const [lo, hi] = affRange(it, a.k);
-  return hi === lo ? 1 : Math.max(1, Math.min(5, Math.ceil((a.v - lo)/(hi - lo)*5)));
+  return hi === lo ? 1 : Math.max(1, Math.min(tierCap(it), Math.ceil((a.v - lo)/(hi - lo)*5 - 1e-9)));
 }
 export function allowedAff(it, except){
   return Object.keys(AFFIX).filter(k => {
@@ -58,6 +60,7 @@ export function genItem(ilvl, minR=0, dropB=0, force={}){
   let r = force.r ?? Number(pickW(Object.fromEntries(w.map((v,i)=>[i,v]))));
   r = Math.max(r, minR);
   const it = {id:SAVE.nextId++, slot, type, r, ilvl, q: Math.round(rnd(0.8,1.2)*100)/100, up:0, aff:[], isNew:true, lock:false};
+  if (force.tc > 5) it.tc = force.tc;
   let n = [0,1,2,3,4][r];
   if (slot==='charm') n = Math.max(1, n);
   for (let i=0;i<n;i++){ const opts = allowedAff(it); if (opts.length) it.aff.push(rollAff(it, pick(opts))); }
@@ -187,7 +190,8 @@ export function smithUpgrade(it){
 }
 // 付け替え：1行を別の効果に引き直す
 export function smithReroll(it, i){
-  const opts = allowedAff(it, it.aff[i]);
+  const all = allowedAff(it, it.aff[i]), other = all.filter(k => k !== it.aff[i].k);
+  const opts = other.length ? other : all;   // 「別の効果」なので、今と同じ効果は出さない（ほかに候補がなければ同じものから）
   if (!opts.length || !pay(rerollCost(it))) return false;
   it.aff[i] = rollAff(it, pick(opts));
   it.name = itemName(it);
