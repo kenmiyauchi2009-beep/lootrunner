@@ -9,14 +9,21 @@ import { draw } from './render.js';
 import { toast } from './ui.js';
 import { openSettings } from './settings.js';
 import { setupOffline } from './offline.js';
-import { setMuted } from './audio.js';
+import { setMuted, setVolumes, playBgm, bgmState } from './audio.js';
+import { showTitle, hideTitle } from './title.js';
+import { applySettings } from './settings.js';
 import { pickSkill, rerollSkills, ACTIVES, PASSIVES } from './skills.js';
 import * as META from './meta.js';
-import { openFacilities, openAchievements, openRecords, openDaily } from './hub.js';
+import { openFacilities, openAchievements, openRecords, openDaily, openLook, nextGoal } from './hub.js';
 
+// 版の番号（sw.js の VERSION と同じにする）
+export const APP_VERSION = '1.7.0';
 const loaded = loadGame();
-setMuted(!!SAVE.settings.mute);
+META.initLook();
+applySettings();
+playBgm('base');   // 音が使えるようになったら（タイトルをタップしたら）鳴り始める
 renderBase();
+showTitle(APP_VERSION);
 saveGame();   // 移行した形式をすぐ書き戻す
 if (loaded === 'broken') toast('セーブデータを読めなかったため、新しく始めました（元のデータは別名で保管）');
 
@@ -33,4 +40,4 @@ window.T = { get SAVE(){ return SAVE; }, get R(){ return R; }, startRun, toBase,
   SAVE_VERSION, migrate, exportText, parseImport, applySave, resetSave, openSettings,
   powerWith, equipKeyFor, smithUpgrade, smithReroll, smithValue, smithLock, salvage, upgradeCost, valueCost, affGrade, openCodex,
   mkEnemy, EB, GHOST, ghostY, ORB, PILLAR, VENT, ventState, BOSS_TELE, CP_CATCHUP, elv, DATA,
-  rerollSkills, META, openFacilities, openAchievements, openRecords, openDaily };
+  rerollSkills, META, openFacilities, openAchievements, openRecords, openDaily, openLook, nextGoal, hideTitle, applySettings, bgmState };

@@ -5,7 +5,7 @@ import { toast } from './ui.js';
 
 // キー名は試作のまま（変えると既存のセーブが見えなくなる）。形式の版は中身の v で管理する。
 export const SKEY = 'lootrunner-save-v1';
-export const SAVE_VERSION = 5;
+export const SAVE_VERSION = 6;
 const EXPORT_PREFIX = 'LOOTRUNNER1:';
 const SLOTS = ['weapon', 'head', 'body', 'charm'];
 
@@ -15,7 +15,7 @@ let lastWritten = null;   // 最後に書き込んだ文字列。中身が変わ
 let failToastAt = 0;
 
 export function newSave(){
-  SAVE = {v:SAVE_VERSION, gold:0, best:0, runs:0, nextId:1, inv:[], equip:emptyEquip(), sort:'power', settings:{}, ...v3Fields(), prog:newProg(), ...v5Fields()};
+  SAVE = {v:SAVE_VERSION, gold:0, best:0, runs:0, nextId:1, inv:[], equip:emptyEquip(), sort:'power', settings:newSettings(), ...v3Fields(), prog:newProg(), ...v5Fields(), look:newLook()};
   const w = genItem(1, 0, 0, {slot:'weapon', type:'sword', r:0});
   w.q = 1; w.isNew = false;
   SAVE.equip.weapon = w;
@@ -33,6 +33,11 @@ export const STAT_KEYS = ['kills', 'gold', 'time', 'dist', 'bosses', 'elites', '
 const newStats = () => ({...Object.fromEntries(STAT_KEYS.map(k => [k, 0])), bossKinds:{}});
 const v5Fields = () => ({fac:Object.fromEntries(FAC_IDS.map(k => [k, 0])), ach:{}, skill:{seen:{}, evo:{}, start:'', off:{}},
   daily:{key:'', best:0, got:[], tries:0, clear:false, hist:{}}, stats:newStats()});
+
+// v6：設定（音量・揺れ・ダメージ数字・省電力・ボタンの位置）と見た目（称号・マント）
+export const newSettings = () => ({mute:false, bgm:0.5, sfx:0.8, shake:true, dmgNum:true, eco:false, left:false});
+const newLook = () => ({title:'', cape:-1});
+export const HIST_MAX = 30;   // 日替わりの履歴は直近30日分だけ残す（セーブが増え続けないように）
 
 // ---------- 移行処理 ----------
 // MIGRATIONS[n] は v(n) → v(n+1) の変換。形式を変えるときは SAVE_VERSION を上げてここに足す。
@@ -77,6 +82,12 @@ const MIGRATIONS = {
     st.upMax = up;
     st.t6 = [...(d.inv || []), ...Object.values(d.equip || {})].some(it => it && Array.isArray(it.aff) && it.aff.some(a => a && a.t >= 6)) ? 1 : 0;
   },
+  // v5 → v6：設定の欄を増やす（消音はそのまま引き継ぐ）・見た目（称号・マント）
+  5(d){
+    const old = d.settings && typeof d.settings === 'object' ? d.settings : {};
+    d.settings = {...newSettings(), mute:!!old.mute};
+    d.look = {...newLook(), fresh:1};   // 起動後に、受け取り済みの実績から称号とマントを決める（meta.js の initLook）
+  },
 };
 
 export function migrate(d){
@@ -106,7 +117,7 @@ function validItem(it){
   return true;
 }
 function sanitize(d){
-  const num = x => Number.isFinite(x) ? x : 0;
+  const num = x => Number.isFinite(x) ? x : 0, obj = x => x && typeof x === 'object' && !Array.isArray(x) ? x : {};
   d.gold = num(d.gold); d.best = num(d.best); d.runs = num(d.runs);
   d.inv = Array.isArray(d.inv) ? d.inv.filter(validItem) : [];
   const eq = d.equip && typeof d.equip === 'object' ? d.equip : {};
@@ -115,7 +126,9 @@ function sanitize(d){
   const maxId = Math.max(0, ...d.inv.map(i => i.id), ...EQUIP_SLOTS.map(k => d.equip[k] ? d.equip[k].id : 0));
   d.nextId = Math.max(num(d.nextId), maxId + 1);
   if (!['power', 'rarity', 'new', 'ilvl', 'slot'].includes(d.sort)) d.sort = 'power';
-  if (!d.settings || typeof d.settings !== 'object') d.settings = {};
+  const se = obj(d.settings), def = newSettings(), vol = x => Number.isFinite(x) ? Math.min(1, Math.max(0, Math.round(x*10)/10)) : null;
+  d.settings = {mute:!!se.mute, bgm:vol(se.bgm) ?? def.bgm, sfx:vol(se.sfx) ?? def.sfx,
+    shake:se.shake !== false, dmgNum:se.dmgNum !== false, eco:!!se.eco, left:!!se.left};
   d.mats = Array.from({length:5}, (_, i) => Array.isArray(d.mats) ? Math.max(0, Math.floor(num(d.mats[i]))) : 0);
   d.invMax = Math.min(INV_LIMIT, Math.max(INV_BASE, Math.floor(num(d.invMax)) || INV_BASE));
   d.autoSalv = [-1, 0, 1, 2].includes(d.autoSalv) ? d.autoSalv : -1;
@@ -123,7 +136,7 @@ function sanitize(d){
   d.filter = {slot:['all', 'weapon', 'head', 'body', 'charm'].includes(f.slot) ? f.slot : 'all', r:[0, 1, 2, 3, 4].includes(f.r) ? f.r : 0};
   const c = d.codex && typeof d.codex === 'object' ? d.codex : {};
   d.codex = {u:c.u && typeof c.u === 'object' ? c.u : {}, s:c.s && typeof c.s === 'object' ? c.s : {}};
-  const pr = d.prog && typeof d.prog === 'object' ? d.prog : {}, obj = x => x && typeof x === 'object' && !Array.isArray(x) ? x : {};
+  const pr = d.prog && typeof d.prog === 'object' ? d.prog : {};
   const maxDiff = Math.min(DIFF_MAX, Math.max(1, Math.floor(num(pr.maxDiff)) || 1));
   const cp = {}, best = {}, clears = {};
   for (let k = 1; k <= maxDiff; k++){
@@ -144,12 +157,16 @@ function sanitize(d){
   const sk = obj(d.skill), flags = o => Object.fromEntries(Object.keys(obj(o)).filter(k => k.length < 20).map(k => [k, 1]));
   d.skill = {seen:flags(sk.seen), evo:flags(sk.evo), start:typeof sk.start === 'string' && sk.start.length < 20 ? sk.start : '', off:flags(sk.off)};
   const dl = obj(d.daily), hist = {};
-  for (const [k, v] of Object.entries(obj(dl.hist))) if (/^\d{4}-\d{2}-\d{2}$/.test(k) && v && typeof v === 'object')
+  for (const [k, v] of Object.entries(obj(dl.hist)).filter(([k]) => /^\d{4}-\d{2}-\d{2}$/.test(k)).sort((a, b) => a[0] < b[0] ? 1 : -1).slice(0, HIST_MAX)) if (v && typeof v === 'object')
     hist[k] = {best:Math.max(0, num(v.best)), clear:!!v.clear, tries:Math.max(0, Math.floor(num(v.tries))), mods:Array.isArray(v.mods) ? v.mods.filter(m => typeof m === 'string').slice(0, 4) : [], diff:Math.max(1, Math.floor(num(v.diff)) || 1)};
   d.daily = {key:typeof dl.key === 'string' ? dl.key : '', best:Math.max(0, num(dl.best)), got:Array.isArray(dl.got) ? dl.got.filter(x => [500, 1000, 1500, 2000].includes(x)) : [],
     tries:Math.max(0, Math.floor(num(dl.tries))), clear:!!dl.clear, hist};
   const st = obj(d.stats);
   d.stats = {...Object.fromEntries(STAT_KEYS.map(k => [k, Math.max(0, num(st[k]))])), bossKinds:flags(st.bossKinds)};
+  // v6
+  const lk = obj(d.look);
+  d.look = {title:typeof lk.title === 'string' && lk.title.length < 20 && d.ach[lk.title] === 2 ? lk.title : '',
+    cape:Number.isInteger(lk.cape) && lk.cape >= -1 && lk.cape < 8 ? lk.cape : -1, ...(lk.fresh === 1 ? {fresh:1} : {})};
   return d;
 }
 

@@ -99,13 +99,13 @@ export const invExpandCost = max => Math.round(800 * Math.pow(2, (max - INV_BASE
 //   foes：出現する敵の重み（[重み, 出始める距離（エリアの頭から）]）・boss：エリアのボス・gim：エリアの仕掛け
 export const ZONES = [
   {n:'みどりの丘',   sky:['#8fd3f4','#d8f1ff'], far:'#a7cdbf', near:'#6aa77f', ground:'#5b8c4a', dirt:'#4a6f3c',
-   foes:{slime:[50,0], bat:[28,60], bigslime:[14,220], boar:[14,300]}, boss:'kingslime', gim:'chest', gn:'宝箱'},
+   foes:{slime:[50,0], bat:[28,60], bigslime:[14,220], boar:[14,300]}, boss:'kingslime', gim:'chest', gn:'宝箱', deco:'meadow'},
   {n:'夕焼けの荒野', sky:['#f08d5a','#ffd9a8'], far:'#d49a76', near:'#a8694f', ground:'#8a5a3c', dirt:'#6f4630',
-   foes:{slime:[16,0], thrower:[24,0], boar:[22,0], mole:[20,0], shield:[18,120]}, boss:'golem', gim:'sand', gn:'流砂'},
+   foes:{slime:[16,0], thrower:[24,0], boar:[22,0], mole:[20,0], shield:[18,120]}, boss:'golem', gim:'sand', gn:'流砂', deco:'mesa'},
   {n:'月夜の森',     sky:['#16224a','#45568a'], far:'#2c3c6a', near:'#203553', cloud:'rgba(180,200,255,.12)', ground:'#2c4a3e', dirt:'#1f362d',
-   foes:{bat:[22,0], ghost:[26,0], shield:[18,0], bigslime:[16,0], mole:[14,0], thrower:[8,0]}, boss:'witch', gim:'fog', gn:'霧'},
+   foes:{bat:[22,0], ghost:[26,0], shield:[18,0], bigslime:[16,0], mole:[14,0], thrower:[8,0]}, boss:'witch', gim:'fog', gn:'霧', deco:'forest'},
   {n:'灼熱の火山',   sky:['#2e1010','#8a2c1c'], far:'#5a2020', near:'#3f1616', cloud:'rgba(60,40,40,.5)', ground:'#3a2a26', dirt:'#2a1d1a',
-   foes:{bomber:[24,0], thrower:[16,0], boar:[18,0], shield:[16,0], ghost:[12,0], bat:[10,0]}, boss:'dragon', gim:'lava', gn:'火柱'},
+   foes:{bomber:[24,0], thrower:[16,0], boar:[18,0], shield:[16,0], ghost:[12,0], bat:[10,0]}, boss:'dragon', gim:'lava', gn:'火柱', deco:'volcano'},
 ];
 export const CLEAR_DIST = 2000;   // 4体目のボスの位置。倒すと踏破
 // 難易度：踏破すると次が解放。1段ごとに敵のHP×1.8・攻撃力×1.3。

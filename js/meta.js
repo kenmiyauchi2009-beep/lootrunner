@@ -1,5 +1,5 @@
 // やり込み要素（処理）：拠点の施設・実績・記録・日替わりダンジョン
-import { SAVE, saveGame } from './save.js';
+import { SAVE, saveGame, HIST_MAX } from './save.js';
 import { UNIQUES, MATS, FAC_MAX } from './data.js';
 import { computeStats } from './items.js';
 
@@ -107,6 +107,34 @@ export const ACH = [
   {id:'gold1m',   n:'大富豪',         d:'冒険で合計1,000,000G 稼ぐ',     goal:1e6,   v:() => S().gold,            r:{g:30000, m:[3, 3]}},
   {id:'time5h',   n:'旅慣れた足',     d:'冒険した時間が合計5時間',       goal:5*3600, v:() => S().time,           r:{g:10000}},
 ];
+// 称号：実績の報酬を受け取ると名乗れる（拠点の絵と結果の画面に出る）
+const TITLES = {d500:'駆け出し', boss1:'王殺し', d1000:'荒野の旅人', d1500:'夜を越えし者', clear1:'踏破者', clear10:'歴戦の勇者',
+  diff2:'猛者', diff3:'豪傑', diff4:'英雄', diff5:'頂に立つ者', bossAll:'四天王殺し', flawless:'無傷の剣士', elite10:'精鋭狩り',
+  elite100:'精鋭の天敵', kill1k:'千人斬り', kill10k:'万人斬り', kill50k:'無双', runKill:'嵐を呼ぶ者', stomp500:'踏み名人',
+  lv20:'育ち盛り', evo1:'進化の芽', evo6:'探究者', evo12:'進化の極み', leg1:'伝説を知る者', leg8:'収集家', legAll:'伝説の語り部',
+  set4:'そろい踏み', up10:'鍛冶の鬼', t6:'目利き', fac1:'村づくり', facMax:'村長', daily1:'挑戦者', daily7:'日課の人',
+  dailyClr:'今日の英雄', gold1m:'大富豪', time5h:'旅慣れた足'};
+for (const a of ACH) a.t = TITLES[a.id] || a.n;
+// マント：受け取った実績の数で増える（冒険中と拠点の主人公に描く）
+export const CAPES = [
+  {n:'赤',   c:'#c8403c', need:3},  {n:'青',   c:'#356fc4', need:6},  {n:'緑',   c:'#3a9a5e', need:10}, {n:'紫',   c:'#7d4cc0', need:14},
+  {n:'白銀', c:'#cdd6de', need:18}, {n:'漆黒', c:'#25232e', need:23}, {n:'黄金', c:'#e8b23a', need:29}, {n:'星空', c:'#2b2f7a', need:36, star:true},
+];
+export const achGot = () => ACH.filter(a => SAVE.ach[a.id] === 2).length;
+export const capeOpen = i => achGot() >= CAPES[i].need;
+export const nextCape = () => CAPES.find((c, i) => !capeOpen(i));
+export const titleText = () => { const a = ACH.find(x => x.id === SAVE.look.title); return a ? a.t : ''; };
+export const capeColor = () => { const i = SAVE.look.cape; return i >= 0 && CAPES[i] && capeOpen(i) ? CAPES[i] : null; };
+// 前の版から移ってきたセーブ：受け取り済みの実績のうち一番あとのものを称号に、着られる一番上のマントを着る
+export function initLook(){
+  const L = SAVE.look;
+  if (!L.fresh) return;
+  delete L.fresh;
+  const got = ACH.filter(a => SAVE.ach[a.id] === 2);
+  if (got.length) L.title = got[got.length - 1].id;
+  for (let i = CAPES.length - 1; i >= 0; i--) if (capeOpen(i)){ L.cape = i; break; }
+  saveGame();
+}
 export const rewardText = r => [r.g ? `${r.g.toLocaleString('ja-JP')}G` : '', r.m ? `${MATS[r.m[0]]}×${r.m[1]}` : ''].filter(Boolean).join('＋');
 // 達成したもの（まだ受け取っていない）を記録し、新しく達成したものを返す
 export function checkAch(){
@@ -121,7 +149,11 @@ export const achClaimable = () => ACH.filter(a => SAVE.ach[a.id] === 1);
 export function claimAch(id){
   const a = ACH.find(x => x.id === id);
   if (!a || SAVE.ach[id] !== 1) return false;
+  const before = CAPES.filter((c, i) => capeOpen(i)).length;
   SAVE.ach[id] = 2;
+  if (!SAVE.look.title) SAVE.look.title = id;   // 最初の称号は自動で名乗る
+  const after = CAPES.filter((c, i) => capeOpen(i)).length;
+  if (after > before) SAVE.look.cape = after - 1;   // 新しいマントはすぐ着る
   if (a.r.g) SAVE.gold += a.r.g;
   if (a.r.m) SAVE.mats[a.r.m[0]] += a.r.m[1];
   saveGame();
@@ -204,7 +236,7 @@ export function recordRun(R){
     const H = SAVE.daily.hist;
     H[D.key] = {best:D.best, clear:D.clear, tries:D.tries, mods:R.daily.mods, diff:R.daily.diff};
     const keys = Object.keys(H).sort();
-    while (keys.length > 30) delete H[keys.shift()];
+    while (keys.length > HIST_MAX) delete H[keys.shift()];
   }
   out.ach = checkAch();
   saveGame();

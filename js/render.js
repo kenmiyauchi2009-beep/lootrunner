@@ -1,6 +1,7 @@
 // 冒険の描画
 import { fmt } from './util.js';
-import { RAR, DROP_FX, ELITE_MODS, BOSSES } from './data.js';
+import { RAR, DROP_FX, ELITE_MODS, BOSSES, ZONES } from './data.js';
+import { drawCape, drawHelmet, drawTrim } from './hero.js';
 import { SAVE } from './save.js';
 import { GY, PX, R, ctx, VW, SCALE, DPR, OY, VTOP, VBOT, zone, zoneIdx, elv, BOSS_LIMIT, ORB, PILLAR, VENT, ventState } from './run.js';
 import { ACTIVES, PASSIVES } from './skills.js';
@@ -22,7 +23,9 @@ function glowImg(c){
   }
   return g;
 }
-function glow(x, y, r, c, a = 1){ ctx.globalAlpha = a; ctx.drawImage(glowImg(c), x - r, y - r, r*2, r*2); ctx.globalAlpha = 1; }
+// bgA：背景を切り替えるとき（前のエリアの景色を薄く重ねる）の不透明度
+let bgA = 1;
+function glow(x, y, r, c, a = 1){ ctx.globalAlpha = a*bgA; ctx.drawImage(glowImg(c), x - r, y - r, r*2, r*2); ctx.globalAlpha = bgA; }
 
 function hills(col, off, base, amp, f){
   ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(-10, GY);
@@ -33,18 +36,13 @@ function rr(x, y, w, h, r, c){ ctx.fillStyle = c; ctx.beginPath(); ctx.roundRect
 function circ(x, y, r, c){ ctx.fillStyle = c; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill(); }
 function outlined(txt, x, y, c){ ctx.strokeText(txt, x, y); ctx.fillStyle = c; ctx.fillText(txt, x, y); }
 
-export function draw(){
-  if (!R) return;
-  const amp = R.shake > 0 ? R.shakeAmp : 0;
-  const sx = amp ? vr(-amp, amp) : 0, sy = amp ? vr(-amp, amp) : 0;
-  const k = DPR*SCALE;
-  ctx.setTransform(k, 0, 0, k, sx*k, (OY + sy)*k);
-  const Z = zone();
-
-  // 空・遠景・地面
+// 背景：空・雲・エリアごとの遠景・丘・地面。a：不透明度（切り替えのとき）
+function drawBg(Z, a){
+  bgA = a; ctx.globalAlpha = a;
   const g = ctx.createLinearGradient(0, Math.min(0, VTOP), 0, GY);
   g.addColorStop(0, Z.sky[0]); g.addColorStop(1, Z.sky[1]);
   ctx.fillStyle = g; ctx.fillRect(-10, VTOP - 10, VW + 20, GY - VTOP + 10);
+  drawDeco(Z, a);
   // 雲（ゆっくり流れる）
   ctx.fillStyle = Z.cloud || 'rgba(255,255,255,.45)';
   for (let i=0;i<5;i++){
@@ -53,6 +51,7 @@ export function draw(){
     ctx.beginPath(); ctx.ellipse(cx, cy, 26 + (i%3)*8, 8, 0, 0, Math.PI*2); ctx.ellipse(cx + 14, cy - 6, 16, 9, 0, 0, Math.PI*2); ctx.fill();
   }
   hills(Z.far, R.px*0.15, 160, 40, 0.012);
+  drawMid(Z);
   hills(Z.near, R.px*0.45, 205, 26, 0.02);
   ctx.fillStyle = Z.ground; ctx.fillRect(-10, GY, VW + 20, VBOT - GY + 10);
   ctx.fillStyle = 'rgba(255,255,255,.14)'; ctx.fillRect(-10, GY, VW + 20, 3);
@@ -64,7 +63,93 @@ export function draw(){
     ug.addColorStop(0, Z.dirt); ug.addColorStop(0.35, 'rgba(8,12,14,.92)'); ug.addColorStop(1, '#0b0f12');
     ctx.fillStyle = ug; ctx.fillRect(-10, GY + 26, VW + 20, VBOT - GY - 16);
   }
+  bgA = 1; ctx.globalAlpha = 1;
+}
+const wrapX = (x, span) => ((x % span) + span) % span;
+// いちばん奥の景色（空のすぐ前）：太陽・月・星・火山
+function drawDeco(Z, a){
+  const d = Z.deco, t = R.t;
+  if (d === 'meadow'){
+    glow(VW*0.78, VTOP + 46, 40, '#fff6c0', 0.7); circ(VW*0.78, VTOP + 46, 13, '#fffbe0');
+  } else if (d === 'mesa'){
+    glow(VW*0.3, 138, 70, '#ffd08a', 0.8); circ(VW*0.3, 138, 20, '#ffe2a8');
+  } else if (d === 'forest'){
+    ctx.fillStyle = '#fff';
+    for (let i = 0; i < 26; i++){ const x = wrapX(i*61.7 - R.px*0.01, VW + 20) - 10, y = VTOP + 8 + (i*37.3) % 110; ctx.globalAlpha = a*(0.35 + 0.35*Math.sin(t*2 + i)); ctx.fillRect(x, y, 1.4, 1.4); }
+    ctx.globalAlpha = a;
+    glow(VW*0.72, VTOP + 50, 36, '#dfe8ff', 0.5); circ(VW*0.72, VTOP + 50, 14, '#eef2ff'); circ(VW*0.72 + 5, VTOP + 46, 12, Z.sky[0]);
+  } else if (d === 'volcano'){
+    const vx = wrapX(VW*0.62 - R.px*0.012, VW + 200) - 70;
+    ctx.fillStyle = '#4a1a14'; ctx.beginPath(); ctx.moveTo(vx - 110, 160); ctx.lineTo(vx - 22, 72); ctx.lineTo(vx + 22, 72); ctx.lineTo(vx + 110, 160); ctx.fill();
+    glow(vx, 72, 34, '#ff6a2a', 0.6 + 0.2*Math.sin(t*3));
+    ctx.fillStyle = '#ff7a2a'; ctx.beginPath(); ctx.moveTo(vx - 22, 72); ctx.lineTo(vx + 22, 72); ctx.lineTo(vx + 12, 90); ctx.lineTo(vx + 4, 80); ctx.lineTo(vx - 8, 96); ctx.fill();
+    // 煙と火の粉
+    for (let i = 0; i < 5; i++){ const q = (t*0.12 + i/5) % 1; ctx.globalAlpha = a*0.35*(1 - q); circ(vx + q*30 + Math.sin(q*6 + i)*6, 66 - q*80, 8 + q*18, '#3a2424'); }
+    for (let i = 0; i < 10; i++){ const q = (t*0.4 + i/10) % 1; ctx.globalAlpha = a*(1 - q); ctx.fillStyle = '#ffb36a'; ctx.fillRect(vx + Math.sin(i*7.1)*20 + q*14, 72 - q*90, 1.6, 1.6); }
+  }
+  ctx.globalAlpha = a;
+}
+// 遠い丘と近い丘のあいだの景色：木・岩山とサボテン・針葉樹・岩
+function drawMid(Z){
+  const d = Z.deco, off = R.px*0.3;
+  if (d === 'meadow'){
+    for (let i = 0; i < 6; i++){
+      const x = wrapX(i*97 - off, VW + 120) - 60, y = 186 - (i % 3)*4;
+      ctx.fillStyle = '#7a5a3a'; ctx.fillRect(x - 1.5, y - 10, 3, 12);
+      circ(x, y - 16, 10 - (i % 2)*2, '#4f8f5a'); circ(x - 6, y - 12, 7, '#5a9d64'); circ(x + 6, y - 12, 7, '#4a8752');
+    }
+    // 風車
+    const wx = wrapX(260 - off*0.7, VW + 300) - 120;
+    ctx.fillStyle = '#e8e0d0'; ctx.beginPath(); ctx.moveTo(wx - 7, 190); ctx.lineTo(wx - 4, 150); ctx.lineTo(wx + 4, 150); ctx.lineTo(wx + 7, 190); ctx.fill();
+    ctx.strokeStyle = '#f6f2e8'; ctx.lineWidth = 2.5;
+    for (let k = 0; k < 4; k++){ const ang = R.t*1.2 + k*Math.PI/2; ctx.beginPath(); ctx.moveTo(wx, 152); ctx.lineTo(wx + Math.cos(ang)*20, 152 + Math.sin(ang)*20); ctx.stroke(); }
+  } else if (d === 'mesa'){
+    ctx.fillStyle = '#b87a58';
+    for (let i = 0; i < 3; i++){
+      const x = wrapX(i*190 - off, VW + 260) - 120, w = 70 + (i % 2)*40, h = 34 + (i*13) % 24;
+      ctx.beginPath(); ctx.moveTo(x - w/2 - 12, 200); ctx.lineTo(x - w/2, 200 - h); ctx.lineTo(x + w/2, 200 - h); ctx.lineTo(x + w/2 + 12, 200); ctx.fill();
+    }
+    ctx.fillStyle = '#5f7a44';
+    for (let i = 0; i < 4; i++){
+      const x = wrapX(i*131 + 60 - off*1.2, VW + 120) - 60, y = 204;
+      ctx.fillRect(x - 2.5, y - 22, 5, 22); ctx.fillRect(x - 9, y - 14, 4, 8); ctx.fillRect(x - 9, y - 10, 8, 3); ctx.fillRect(x + 5, y - 18, 4, 8); ctx.fillRect(x + 2, y - 12, 7, 3);
+    }
+  } else if (d === 'forest'){
+    for (let i = 0; i < 9; i++){
+      const x = wrapX(i*57 - off, VW + 80) - 40, h = 40 + (i*17) % 22, y = 200;
+      ctx.fillStyle = i % 2 ? '#1a2a45' : '#16243d';
+      ctx.beginPath(); ctx.moveTo(x, y - h); ctx.lineTo(x + 13, y - h*0.45); ctx.lineTo(x + 7, y - h*0.45); ctx.lineTo(x + 16, y); ctx.lineTo(x - 16, y); ctx.lineTo(x - 7, y - h*0.45); ctx.lineTo(x - 13, y - h*0.45); ctx.fill();
+    }
+    // 蛍
+    for (let i = 0; i < 6; i++){ const x = wrapX(i*83 - off*1.3 + Math.sin(R.t + i)*10, VW + 40) - 20, y = 175 + Math.sin(R.t*1.3 + i*2)*12; glow(x, y, 5, '#d8ff8a', 0.5 + 0.4*Math.sin(R.t*3 + i)); }
+  } else if (d === 'volcano'){
+    ctx.fillStyle = '#2a1210';
+    for (let i = 0; i < 5; i++){
+      const x = wrapX(i*120 - off, VW + 160) - 80, h = 24 + (i*11) % 20;
+      ctx.beginPath(); ctx.moveTo(x - 30, 205); ctx.lineTo(x - 8, 205 - h); ctx.lineTo(x + 4, 205 - h*0.8); ctx.lineTo(x + 30, 205); ctx.fill();
+    }
+    ctx.fillStyle = '#ff7a2a';
+    for (let i = 0; i < 4; i++){ const x = wrapX(i*150 + 40 - off, VW + 160) - 80; ctx.globalAlpha = bgA*(0.5 + 0.3*Math.sin(R.t*4 + i)); ctx.fillRect(x - 10, 203, 20, 2); }
+    ctx.globalAlpha = bgA;
+  }
+}
 
+export function draw(){
+  if (!R) return;
+  const amp = R.shake > 0 ? R.shakeAmp : 0;
+  const sx = amp ? vr(-amp, amp) : 0, sy = amp ? vr(-amp, amp) : 0;
+  const k = DPR*SCALE;
+  ctx.setTransform(k, 0, 0, k, sx*k, (OY + sy)*k);
+  const Z = zone();
+
+  // 空・遠景・地面（エリアが変わるときは、前のエリアの景色を少しずつ消して切り替える）
+  drawBg(Z, 1);
+  const zc = R.zoneCard;
+  if (zc && zc.from){
+    const age = zc.max - zc.t - (zc.delay || 0);
+    const a = age < 0 ? 1 : Math.max(0, 1 - age/1.4);
+    if (a > 0) drawBg(zc.from, a);
+  }
   // ドロップの光の柱
   for (const f of R.fx) if (f.kind==='pillar'){
     const F = DROP_FX[f.r], c = RAR[f.r].c, a = Math.min(1, f.t/f.max * 1.6);
@@ -189,6 +274,10 @@ export function draw(){
       ctx.stroke();
     } else if (f.kind==='part'){
       ctx.globalAlpha = a; ctx.fillStyle = f.c; ctx.fillRect(f.x-2, f.y-2, 4, 4); ctx.globalAlpha = 1;
+    } else if (f.kind==='coin'){   // 金貨（くるくる回る）
+      const w = Math.abs(Math.cos(R.t*12 + f.vx)) * 3.5 + 0.6;
+      ctx.globalAlpha = Math.min(1, a*2); ctx.fillStyle = '#ffd36b'; ctx.beginPath(); ctx.ellipse(f.x, f.y, w, 3.6, 0, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#fff3c0'; ctx.fillRect(f.x - 0.6, f.y - 2, 1.2, 1.6); ctx.globalAlpha = 1;
     } else if (f.kind==='beam'){   // 光線
       const w = f.w * (0.4 + a*0.6);
       ctx.globalAlpha = a*0.45; ctx.fillStyle = '#fff6c8'; ctx.fillRect(f.x, f.y - w, VW - f.x + 20, w*2);
@@ -196,6 +285,7 @@ export function draw(){
       ctx.globalAlpha = 1; glow(f.x, f.y, 16, '#fff6c8', a);
     }
   }
+  if (R.bossFx) drawBossKill(R.bossFx);
   // 時の砂：画面を少し紫に
   if (R.sk.slowT > 0){ ctx.globalAlpha = Math.min(0.18, R.sk.slowT*0.3) * (R.sk.slowF < 0.3 ? 1.5 : 1); ctx.fillStyle = '#9a7dff'; ctx.fillRect(-10, VTOP, VW + 20, VBOT - VTOP); ctx.globalAlpha = 1; }
   // ダメージ数字（会心は大きく、出た瞬間に弾む）
@@ -302,13 +392,16 @@ function drawPlayer(){
   if (p.inv > 0 && Math.floor(p.inv*16) % 2) return;
   const air = y < GY, run = R.t*15;
   ctx.strokeStyle = '#2b2f3a'; ctx.lineWidth = 4; ctx.lineCap = 'round';
+  drawCape(ctx, x, y, R.t, air ? 1.2 : 1);
   const legs = air ? [0.6, -0.4] : [Math.sin(run)*0.8, -Math.sin(run)*0.8];
   for (const [i,a] of legs.entries()){ ctx.beginPath(); ctx.moveTo(x - 2 + i*4, y - 10); ctx.lineTo(x - 2 + i*4 + Math.sin(a)*8, y - 1); ctx.stroke(); }
   rr(x - 8, y - 27, 16, 18, 4, SAVE.equip.body ? RAR[SAVE.equip.body.r].c : '#3d8bd9');
   rr(x - 8, y - 15, 16, 3, 1, 'rgba(0,0,0,.25)');
+  drawTrim(ctx, x, y, R.t);
   circ(x + 1, y - 32, 7, '#f6d2a8');
   ctx.fillStyle = '#5a3a22'; ctx.beginPath(); ctx.arc(x, y - 34, 7.5, Math.PI*1.05, Math.PI*2.05); ctx.fill();
   circ(x + 4, y - 32, 1.3, '#222');
+  drawHelmet(ctx, x, y);
   // 武器
   const w = SAVE.equip.weapon, c = w ? RAR[w.r].c : '#ccc', hx = x + 7, hy = y - 18;
   if (w && w.r >= 3) glow(hx + 6, hy - 8, 16, c, 0.55);
@@ -648,6 +741,7 @@ function drawHUD(H){
   };
   for (const [id, lv] of Object.entries(S.act)) icon(ACTIVES[id].ic, ACTIVES[id].c, lv, S.evo[id]);
   for (const [id, lv] of Object.entries(S.pas)) icon(PASSIVES[id].ic, PASSIVES[id].c, lv, false);
+  if (R.zoneCard) drawZoneCard(R.zoneCard);
   if (R.banner.t > 0){
     ctx.globalAlpha = Math.min(1, R.banner.t*2);
     ctx.textAlign = 'center'; ctx.font = 'bold 18px -apple-system, sans-serif';
@@ -666,4 +760,53 @@ function drawHUD(H){
     ctx.globalAlpha = 1;
   }
   if (R.paused){ ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(0, 0, VW, H); }
+}
+
+// ボス撃破：光の筋が回り、衝撃波が広がり、「撃破！」の文字が押される
+function drawBossKill(f){
+  const age = f.max - f.t, a = Math.min(1, f.t/0.6);
+  ctx.save();
+  ctx.beginPath(); ctx.rect(-10, VTOP - 10, VW + 20, GY - VTOP + 12); ctx.clip();   // 光は地面の上だけ（下のログを読みやすく）
+  ctx.translate(f.x, f.y);
+  ctx.globalAlpha = 0.35*a; ctx.fillStyle = '#fff4c8';
+  for (let i = 0; i < 10; i++){
+    const ang = i/10*Math.PI*2 + age*0.8, w = 0.12;
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(ang - w)*400, Math.sin(ang - w)*400); ctx.lineTo(Math.cos(ang + w)*400, Math.sin(ang + w)*400); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  for (let k = 0; k < 3; k++){
+    const q = Math.min(1, Math.max(0, (age - k*0.15)/0.9));
+    if (q <= 0 || q >= 1) continue;
+    ctx.strokeStyle = `rgba(255,230,160,${1 - q})`; ctx.lineWidth = 6*(1 - q) + 1;
+    ctx.beginPath(); ctx.arc(0, 0, 20 + q*170, 0, Math.PI*2); ctx.stroke();
+  }
+  ctx.restore();
+  // 文字（大きく出てから縮んで止まる）
+  const pop = age < 0.18 ? 2.2 - age/0.18*1.2 : 1;
+  ctx.globalAlpha = Math.min(1, f.t*1.5);
+  ctx.textAlign = 'center'; ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(60,20,0,.8)';
+  ctx.font = `900 ${Math.round(30*pop)}px -apple-system, sans-serif`;
+  outlined('撃破！', VW/2, 118, '#ffd36b');
+  ctx.font = 'bold 12px -apple-system, sans-serif'; ctx.lineWidth = 3;
+  outlined(f.n, VW/2, 136, '#fff');
+  ctx.globalAlpha = 1;
+}
+// エリア名のカード（右から滑り込んで、少し止まって、左へ抜ける）
+function drawZoneCard(z){
+  const age = z.max - z.t - (z.delay || 0);
+  if (age < 0) return;
+  const dur = z.max - (z.delay || 0), Z = ZONES[R.zoneOrder ? R.zoneOrder[z.i] : z.i];
+  const inT = Math.min(1, age/0.35), outT = Math.max(0, (age - (dur - 0.4))/0.4);
+  const ease = q => 1 - Math.pow(1 - q, 3);
+  const dx = (1 - ease(inT))*VW - ease(outT)*VW;
+  const y = 98, h = 46;
+  ctx.save(); ctx.translate(dx, 0);
+  ctx.globalAlpha = 0.82; ctx.fillStyle = 'rgba(8,12,16,.85)'; ctx.fillRect(0, y, VW, h);
+  ctx.globalAlpha = 1; ctx.fillStyle = Z.sky[0]; ctx.fillRect(0, y, VW, 2); ctx.fillRect(0, y + h - 2, VW, 2);
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 9px -apple-system, sans-serif'; ctx.fillStyle = Z.sky[1];
+  ctx.fillText(`エリア ${z.i + 1}${z.sub ? ' ・ ' + z.sub : ''}`, VW/2, y + 14);
+  ctx.font = '800 20px -apple-system, sans-serif'; ctx.fillStyle = '#fff';
+  ctx.fillText(Z.n, VW/2, y + 37);
+  ctx.restore();
 }

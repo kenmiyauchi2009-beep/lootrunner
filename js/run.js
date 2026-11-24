@@ -6,9 +6,10 @@ import { SAVE, saveGame } from './save.js';
 import { closeModal, dialog, closeDialog } from './ui.js';
 import { renderBase } from './base.js';
 import { draw } from './render.js';
-import { sfx, unlockAudio, isMuted, setMuted } from './audio.js';
+import { sfx, unlockAudio, isMuted, setMuted, playBgm, duckBgm, pauseBgm } from './audio.js';
 import { initSkills, updateSkills, onLand, dropGem, openLevelUp, skillSummary, XP, catchUp, absorbHit, applyPassives } from './skills.js';
 import { dailyPlan, seeded, recordRun, rewardText, DAILY_MODS } from './meta.js';
+import { hideTitle } from './title.js';
 
 export const VH = 300, GY = 255, PX = 70;
 export let R = null, cv = $('cv'), ctx = cv.getContext('2d');
@@ -23,7 +24,7 @@ const MAX_FX = 400;
 export function sizeCanvas(){
   const stage = $('stage');
   const w = Math.max(1, stage.clientWidth), h = Math.max(1, stage.clientHeight);
-  DPR = Math.min(2, window.devicePixelRatio || 1);
+  DPR = Math.min(SAVE.settings.eco ? 1 : 2, window.devicePixelRatio || 1);
   cv.width = Math.round(w*DPR); cv.height = Math.round(h*DPR);
   // 縦持ち：横幅250ぶんを映して大きく見せ、地面を下から約3割の位置に置いてその下をログ欄にする
   // 横持ち：高さ300ぶんを映す（横は広く見える）
@@ -38,7 +39,7 @@ export function sizeCanvas(){
     Object.assign(feed.style, {top:Math.round((GY + OY + 18) * SCALE) + 'px', left:'16px', right:'16px', bottom:'4px'});
     feedMax = Math.max(3, Math.floor(((VBOT - GY - 18) * SCALE - 4) / 24));
   } else {
-    Object.assign(feed.style, {top:Math.round((44 - VTOP) * SCALE) + 'px', left:Math.round(10 * SCALE) + 'px', right:'50%', bottom:'auto'});
+    Object.assign(feed.style, {top:Math.round((60 - VTOP) * SCALE) + 'px', left:Math.round(10 * SCALE) + 'px', right:'50%', bottom:'auto'});
     feedMax = 3;
   }
   const f = $('feed'); while (f.children.length > feedMax) f.lastChild.remove();
@@ -82,12 +83,14 @@ export function startRun(opt = {}){
     if (M.has('fog')) R.fogAll = 0.5;
     R.hordeT = Math.min(R.hordeT, R.hordeEvery + 5);
   }
-  R.banner.txt = daily ? `日替わり ・ ${zone().n}` : (diff > 1 ? `難易度${diff} ・ ` : '') + zone().n;
+  R.banner.t = 0;
+  R.zoneCard = {t:2.6, max:2.6, i:zoneIdx(), sub:daily ? '日替わりダンジョン' : diff > 1 ? `難易度${diff}` : '', from:null};
   initSkills();
   applyPassives();
   if (start) catchUp(CP_CATCHUP[start].lv);
   if (st.uniq.has('sage')) R.sk.pending++;   // 賢者の冠：出撃してすぐスキルを1つ選べる
   saveGame();
+  hideTitle();
   $('base').classList.add('hidden'); closeModal(); closeDialog();
   $('run').classList.remove('hidden');
   $('feed').innerHTML = '';
@@ -95,21 +98,30 @@ export function startRun(opt = {}){
   window.scrollTo(0,0);
   sizeCanvas();
   lastT = performance.now();
-  cancelAnimationFrame(rafId);
-  rafId = requestAnimationFrame(loop);
+  rafId = 0; kick();
+  playBgm('zone' + (R.zoneOrder ? R.zoneOrder[0] : zoneIdx()));
 }
 export function toBase(){
-  cancelAnimationFrame(rafId); R = null;
+  cancelAnimationFrame(rafId); rafId = 0; R = null;
   $('run').classList.add('hidden'); $('base').classList.remove('hidden');
   closeDialog(); renderBase();
+  playBgm('base');
 }
-export function resumeClock(){ lastT = performance.now(); }
+// 止まっていた描画を動かし直す（一時停止・レベルアップの3択から戻ったとき）
+export function resumeClock(){ lastT = performance.now(); kick(); }
+export function kick(){ if (R && !rafId) rafId = requestAnimationFrame(loop); }
+// 描画のループ。一時停止中・3択の間・結果の画面では、最後の1枚を描いたら止める（電池のため）。
+// 省電力モードでは1秒に30回だけ動かす。
+let skipOdd = false;
 function loop(now){
+  rafId = 0;
   if (!R) return;
+  if (SAVE.settings.eco && (skipOdd = !skipOdd) && now - lastT < 30){ rafId = requestAnimationFrame(loop); return; }
   const dt = Math.max(0, Math.min(0.05, (now - lastT)/1000)); lastT = now;   // 最初のフレームは時刻が戻ることがある
+  const still = R.paused || R.levelup || (R.over && now - R.overAt > 900);
   if (!R.paused && !R.over) step(dt);
   draw();
-  rafId = requestAnimationFrame(loop);
+  if (!still) rafId = requestAnimationFrame(loop);
 }
 export const zoneIdx = () => Math.min(ZONES.length - 1, Math.floor(R.nextBoss/500) - 1);
 export const zone = () => ZONES[R.zoneOrder ? R.zoneOrder[zoneIdx()] : zoneIdx()];
@@ -118,7 +130,7 @@ const blv = () => elv() - R.lvOff;                                 // 強さの�
 export const ecenter = e => [e.x, e.y - e.h/2];
 // 狙える敵（倒れていない・地中にいない）
 export const alive = e => !e.dead && e.hp > 0 && !e.under;
-export function shake(t, amp){ R.shakeAmp = R.shake > 0 ? Math.max(R.shakeAmp, amp) : amp; R.shake = Math.max(R.shake, t); }
+export function shake(t, amp){ if (!SAVE.settings.shake) return; R.shakeAmp = R.shake > 0 ? Math.max(R.shakeAmp, amp) : amp; R.shake = Math.max(R.shake, t); }
 
 // 敵の基本値（sp：歩く速さ）
 export const EB = {
@@ -288,6 +300,9 @@ export function step(dt){
   const p = R.p, st = R.st;
   if (R.levelup) return;                              // レベルアップの3択を選んでいるあいだは止める
   if (R.hitstop > 0){ R.hitstop -= dt; return; }   // ヒットストップ中は時間を止める
+  if (R.slowmo > 0){ R.slowmo -= dt; dt *= 0.3; }   // ボス撃破のスロー
+  if (R.zoneCard && (R.zoneCard.t -= dt) <= 0) R.zoneCard = null;
+  if (R.bossFx && (R.bossFx.t -= dt) <= 0) R.bossFx = null;
   R.t += dt;
   if (R.clearT > 0 && (R.clearT -= dt) <= 0){ endRun(false, 'clear'); return; }
   const scroll = R.boss || R.clearT > 0 ? 0 : R.speed;
@@ -307,6 +322,7 @@ export function step(dt){
     R.banner = {t:2, txt:`${BOSSES[id].n} 出現！`, c:'#ff8a6b'};
     meet(id);
     sfx('boss'); shake(0.6, 3);
+    playBgm('boss');
   }
   if (!R.boss && !(R.clearT > 0)){
     R.spawnT -= dt;
@@ -418,7 +434,7 @@ export function step(dt){
   // 演出（光の柱は地面と一緒に流れる）
   for (const f of R.fx){
     f.t -= dt;
-    if (f.kind==='part'){ f.vy += (f.g ?? 500)*dt; f.x += f.vx*dt; f.y += f.vy*dt; }
+    if (f.kind==='part' || f.kind==='coin'){ f.vy += (f.g ?? 500)*dt; f.x += f.vx*dt; f.y += f.vy*dt; if (f.kind==='coin' && f.y > GY - 3){ f.y = GY - 3; f.vy *= -0.4; f.vx *= 0.6; } }
     else if (f.kind==='pillar') f.x -= scroll*dt;
   }
   R.fx = R.fx.filter(f => f.t > 0);
@@ -716,7 +732,7 @@ export function hit(e, base, noProc, skill, sCrit){
   const d = base * (crit ? st.critM : 1) * res * mul;
   e.hp -= d; e.hitFlash = 0.08;
   if (e.type !== 'boss' && e.type !== 'chest') e.x += 3;   // 軽いノックバック
-  addText(e.x + rnd(-6,6), e.y - e.h - 4, Math.round(d), crit || sCrit ? '#ffe14d' : !skill ? '#ffffff' : res < 1 ? '#8e9aa3' : '#d8e4ff', crit, 0.7, skill && !sCrit);
+  if (SAVE.settings.dmgNum) addText(e.x + rnd(-6,6), e.y - e.h - 4, Math.round(d), crit || sCrit ? '#ffe14d' : !skill ? '#ffffff' : res < 1 ? '#8e9aa3' : '#d8e4ff', crit, 0.7, skill && !sCrit);
   if (crit){ shake(0.08, 2); sfx('crit'); } else if (!skill) sfx('hit');
   if (st.leech > 0) R.p.hp = Math.min(R.p.maxHp, R.p.hp + d*st.leech/100);
   if (!noProc){
@@ -797,7 +813,10 @@ function onKill(e){
   if (e.type==='boss'){
     R.hitstop = Math.max(R.hitstop, 0.3);
     shake(0.5, 5); R.flash = {c:'#ffffff', t:0.3, max:0.3};
-    sfx('bosskill');
+    sfx('bosskill'); duckBgm(2.2);
+    // 撃破の演出：スロー・光の筋・衝撃波・金貨
+    R.slowmo = 0.8; R.bossFx = {t:2.0, max:2.0, x:cx, y:cy, n:BOSSES[e.boss].n};
+    for (let i = 0; i < (SAVE.settings.eco ? 14 : 28); i++) R.fx.push({kind:'coin', x:cx + rnd(-10, 10), y:cy, vx:rnd(-160, 160), vy:rnd(-420, -180), g:900, t:rnd(1.2, 1.8), max:1.8});
     const n = R.cpRun ? CP_RULE.bossDrops : CP_RULE.fullBossDrops;
     for (let i = 0; i < n; i++) drop(e, e.lv + 1, 2);
     R.bossLog.push({id:e.boss, at:R.nextBoss, sec:Math.round(e.fightT), hits:R.bossHits});
@@ -820,8 +839,12 @@ function onKill(e){
       return;
     }
     if (!R.daily) P.cp[R.diff] = Math.max(P.cp[R.diff] || 0, b);
+    const from = zone();
     R.nextBoss += 500;
-    if (R.bossHits) R.banner = {t:2.6, txt:`ボス撃破！ → ${zone().n}`};
+    // 次のエリアへ：空が切り替わり、エリア名のカードが出る（撃破の演出のあと）
+    R.zoneCard = {t:3.4, max:3.4, delay:1.0, i:zoneIdx(), sub:`${R.nextBoss}m にボス`, from};
+    if (!R.bossHits) R.banner = {t:2.6, txt:'ノーダメージ撃破！', c:'#7fe8ff'};
+    playBgm('zone' + (R.zoneOrder ? R.zoneOrder[zoneIdx()] : zoneIdx()), 1.5);
     saveGame();
   } else {
     R.hitstop = Math.max(R.hitstop, 0.035);
@@ -922,12 +945,13 @@ export function addText(x, y, txt, c, big, life = 0.7, small = false){
   R.texts.push({x, y, txt:String(txt), c, big, small, t:life, max:life});
 }
 export function burst(x, y, c, n){
-  if (R.fx.length > MAX_FX) return;
+  if (R.fx.length > (SAVE.settings.eco ? MAX_FX/2 : MAX_FX)) return;
+  if (SAVE.settings.eco) n = Math.ceil(n/2);
   for (let i=0;i<n;i++) R.fx.push({kind:'part', x, y, vx:rnd(-120,120), vy:rnd(-220,-40), c, t:rnd(0.3,0.6), max:0.6});
 }
 
 function endRun(retreat, reason){
-  R.over = true; R.endReason = retreat ? 'retreat' : reason || 'dead';
+  R.over = true; R.overAt = performance.now(); kick(); R.endReason = retreat ? 'retreat' : reason || 'dead';
   SAVE.runs++;
   const dist = Math.floor(R.dist), P = SAVE.prog;
   SAVE.best = Math.max(SAVE.best, dist);
@@ -947,7 +971,7 @@ function endRun(retreat, reason){
     ...rec.daily.map(x => `<div>日替わり ${x.at}m の報酬：<b class="gold">${rewardText({g:x.g, m:x.m})}</b></div>`),
     ...rec.ach.map(a => `<div>実績「<b style="color:var(--accent)">${a.n}</b>」達成！（拠点の「実績」で受け取る）</div>`),
   ].join('');
-  setTimeout(() => dialog(`
+  const html = `
     <h2>${title}</h2>
     ${note ? `<p class="sksum">${note}</p>` : ''}
     ${extra ? `<div class="sksum extra">${extra}</div>` : ''}
@@ -958,17 +982,20 @@ function endRun(retreat, reason){
     </div>
     <p class="sksum">${skillSummary()}</p>
     <div class="loot">${lootHTML}</div>
-    <div class="btns"><button class="primary" id="dBase">拠点へ戻る</button></div>`), retreat ? 0 : 600);
-  setTimeout(() => { const b = $('dBase'); if (b) b.onclick = toBase; }, retreat ? 10 : 620);
+    <div class="btns"><button class="primary" id="dBase">拠点へ戻る</button></div>`;
+  // 結果の画面は少し余韻を見せてから出す（中身はいま作っておく。その間に拠点へ戻っていたら出さない）
+  const run = R;
+  setTimeout(() => { if (R !== run) return; dialog(html); $('dBase').onclick = toBase; }, retreat ? 0 : 600);
 }
 export function pauseRun(){
   if (!R || R.over || R.paused || R.levelup) return;   // レベルアップの3択中はそれ自体が止まっている
   R.paused = true; R.p.hold = false;
+  pauseBgm(true);
   dialog(`<h2>一時停止</h2><p style="color:var(--muted);font-size:13px">${R.daily ? `日替わり（${R.daily.mods.map(m => DAILY_MODS[m].n).join('・')}）・ ` : ''}${R.diff > 1 ? `難易度${R.diff} ・ ` : ''}${fmt(R.dist)}m ・ 拾った装備 ${R.loot.length}個</p>
     <p class="sksum">${skillSummary()}</p>
     <div class="btns"><button class="primary" id="dResume">再開</button><button id="dRetreat">撤退する（拾った装備は持ち帰る）</button></div>`);
-  $('dResume').onclick = () => { closeDialog(); R.paused = false; lastT = performance.now(); unlockAudio(); };
-  $('dRetreat').onclick = () => { closeDialog(); R.paused = false; endRun(true); };
+  $('dResume').onclick = () => { closeDialog(); R.paused = false; unlockAudio(); pauseBgm(false); resumeClock(); };
+  $('dRetreat').onclick = () => { closeDialog(); R.paused = false; pauseBgm(false); endRun(true); };
 }
 
 // 消音（設定に保存）

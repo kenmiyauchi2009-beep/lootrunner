@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-title" content="ルートランナー">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0e1418">
-<title>ルートランナー 試作</title>
+<title>ルートランナー</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
@@ -16,35 +16,61 @@
 </head>
 <body>
 
+<!-- タイトル（起動したときだけ） -->
+<div id="title" class="hidden">
+  <canvas id="titleCv"></canvas>
+  <div class="tlogo"><h1>ルートランナー</h1><p>走って、拾って、鍛える</p></div>
+  <div class="ttap" id="titleTap">タップしてはじめる</div>
+  <div class="tver" id="titleVer"></div>
+</div>
+
 <!-- 拠点 -->
 <div id="base">
   <div class="top">
-    <h1>ルートランナー <small style="color:var(--muted);font-weight:400">試作</small></h1>
+    <h1>ルートランナー</h1>
     <div class="topr">
       <div class="meta"><span class="gold" id="bGold"></span><small id="bBest"></small></div>
-      <button class="small" id="setBtn" aria-label="設定を開く">設定</button>
+      <button class="small icob" id="setBtn" aria-label="設定を開く"></button>
     </div>
   </div>
-  <button class="primary go" id="goBtn">出撃する<small id="goSub"></small></button>
-  <div class="hub">
-    <button id="dailyBtn"><b>日替わり</b><small id="dailySub"></small></button>
-    <button id="facBtn"><b>施設</b><small id="facSub"></small></button>
-    <button id="achBtn"><b>実績</b><small id="achSub"></small></button>
-    <button id="recBtn"><b>記録</b><small>統計</small></button>
-  </div>
-  <div class="card">
-    <div class="powerrow"><span style="color:var(--muted);font-size:12px">戦力</span><span class="power" id="bPower"></span></div>
-    <div class="stats" id="bStats"></div>
-    <p class="roles">装備＝ボスを倒す力と耐える力（ボスにはスキルが効かない）。<br>スキル（出撃中にレベルアップで選ぶ）＝群れを倒す力。</p>
-  </div>
-  <div class="card">
-    <h2><span>装備</span><button class="small" id="codexBtn">図鑑</button></h2>
-    <div id="bEquip"></div>
-    <div id="bSets"></div>
-  </div>
+
+  <!-- 拠点タブ：村の絵・次の目標・出撃・やり込み -->
+  <section class="tab" id="tabHome">
+    <div class="camp">
+      <canvas id="campCv" aria-label="拠点の村。建物をタップすると施設が開く"></canvas>
+      <div class="camptag" id="campTag"></div>
+      <div class="camppow"><small>戦力</small><b id="campPow"></b></div>
+    </div>
+    <button class="goal" id="goal"></button>
+    <button class="primary go" id="goBtn">出撃する<small id="goSub"></small></button>
+    <div class="hub">
+      <button id="dailyBtn"><i data-ic="daily"></i><b>日替わり</b><small id="dailySub"></small></button>
+      <button id="facBtn"><i data-ic="home"></i><b>施設</b><small id="facSub"></small></button>
+      <button id="achBtn"><i data-ic="trophy"></i><b>実績</b><small id="achSub"></small><span class="badge" id="achBadge"></span></button>
+      <button id="recBtn"><i data-ic="book"></i><b>記録</b><small>統計</small></button>
+    </div>
+  </section>
+
+  <!-- 装備タブ -->
+  <section class="tab hidden" id="tabGear">
+    <div class="card">
+      <div class="powerrow"><span style="color:var(--muted);font-size:12px">戦力</span><span class="power" id="bPower"></span></div>
+      <div class="stats" id="bStats"></div>
+      <p class="roles">装備＝ボスを倒す力と耐える力（ボスにはスキルが効かない）。<br>スキル（出撃中にレベルアップで選ぶ）＝群れを倒す力。</p>
+    </div>
+    <div class="card">
+      <h2><span>装備</span><button class="small" id="codexBtn">図鑑</button></h2>
+      <div id="bEquip"></div>
+      <div id="bSets"></div>
+    </div>
+  </section>
+
+  <!-- 所持品タブ -->
+  <section class="tab hidden" id="tabBag">
   <div class="card">
     <h2><span id="bInvTitle">所持品</span><button class="small" id="expandBtn">枠を増やす</button></h2>
     <div class="mats" id="bMats" aria-label="素材"></div>
+    <p class="matnote">素材は装備を分解すると手に入る（コモン→欠片、アンコモン→結晶、レア→宝玉、エピック→秘石、レジェンド→星核）。鍛冶と施設の強化に使う。</p>
     <div class="invtools">
       <select id="fSlot" aria-label="部位で絞り込み">
         <option value="all">部位：すべて</option>
@@ -82,7 +108,13 @@
     </div>
     <div id="bInv"></div>
   </div>
+  </section>
 </div>
+<nav class="tabbar" id="tabbar" aria-label="拠点の画面">
+  <button data-tab="tabHome" class="on" aria-pressed="true"><i data-ic="home"></i>拠点</button>
+  <button data-tab="tabGear" aria-pressed="false"><i data-ic="sword"></i>装備<span class="badge" id="gearBadge"></span></button>
+  <button data-tab="tabBag" aria-pressed="false"><i data-ic="bag"></i>所持品<span class="badge" id="bagBadge"></span></button>
+</nav>
 
 <!-- 冒険 -->
 <div id="run" class="hidden">

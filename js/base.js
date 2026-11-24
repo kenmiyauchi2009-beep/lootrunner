@@ -10,16 +10,20 @@ import { startRun } from './run.js';
 import { renderHub } from './hub.js';
 import { ACTIVES, PASSIVES, unlocked } from './skills.js';
 import { TRAIN } from './meta.js';
+import { icon, itemIcon, matIcon, matChip, goldChip, costHTML } from './icons.js';
+import { setupCamp, campHit, kickCamp, stopCamp } from './camp.js';
+import { titleText } from './meta.js';
+import { openFacilities, openLook } from './hub.js';
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]));
-const costText = c => `${fmt(c.gold)}G${c.mat ? `＋${MATS[c.mat.r]}×${c.mat.n}` : ''}`;
+const costText = c => costHTML(c, SAVE);
 const matsText = m => `${MATS[m.r]}×${m.n}`;
 const subText = it => `${SLOT_N[it.slot]}${it.slot==='weapon' ? '・' + WTYPES[it.type].n : ''} ・ Lv${it.ilvl}${it.up ? ' ・ +' + it.up : ''} ・ 品質${Math.round(it.q*100)}%`;
 
 export function itemRowHTML(it, right){
   const rc = RAR[it.r].c, S = it.set && SETS[it.set];
   return `<div class="item" data-id="${it.id}" style="--rc:${rc}">
-    <div class="ico">${ICON[it.type]}</div>
+    <div class="ico">${itemIcon(it.type)}</div>
     <div class="nm"><b>${esc(it.name)}${it.up ? ' +' + it.up : ''}${it.isNew ? '<span class="tag new">NEW</span>' : ''}${S ? `<span class="tag set" style="--sc:${S.c}">${S.n}</span>` : ''}${it.lock ? '<span class="tag lock">保護</span>' : ''}</b><small>${subText(it)}</small></div>
     ${right || ''}</div>`;
 }
@@ -44,10 +48,10 @@ export function renderBase(){
   $('bEquip').innerHTML = EQUIP_SLOTS.map(k => {
     const it = SAVE.equip[k];
     return it ? itemRowHTML(it, `<span class="diff same">${SLOT_N[k]}</span>`)
-      : `<div class="item" style="--rc:#444"><div class="ico">${ICON[k==='weapon' ? 'sword' : slotOfKey(k)]}</div><div class="nm"><b style="color:var(--muted)">${SLOT_N[k]}：なし</b><small>冒険で拾える</small></div></div>`;
+      : `<div class="item" style="--rc:#444"><div class="ico">${itemIcon(k==='weapon' ? 'sword' : slotOfKey(k))}</div><div class="nm"><b style="color:var(--muted)">${SLOT_N[k]}：なし</b><small>冒険で拾える</small></div></div>`;
   }).join('');
   $('bSets').innerHTML = Object.entries(st.sets).map(([id, n]) => setLineHTML(id, n)).join('');
-  $('bMats').innerHTML = MATS.map((m, i) => `<span class="mat" style="--rc:${RAR[i].c}">${m}<b>${fmt(SAVE.mats[i])}</b></span>`).join('');
+  $('bMats').innerHTML = MATS.map((m, i) => `<span class="mat" style="--rc:${RAR[i].c}">${matIcon(i)}${m}<b>${fmt(SAVE.mats[i])}</b></span>`).join('');
   $('bInvTitle').textContent = `所持品 ${SAVE.inv.length}/${SAVE.invMax}`;
   $('expandBtn').disabled = SAVE.invMax >= INV_LIMIT;
   $('sortSel').value = SAVE.sort;
@@ -70,8 +74,38 @@ export function renderBase(){
   $('bInv').innerHTML = (list.length ? list.map(it => itemRowHTML(it, diffHTML(gain.get(it)))).join('')
     : `<div class="empty">${SAVE.inv.length ? '条件に合う装備がない。' : 'まだ何もない。出撃して装備を拾おう。'}</div>`)
     + (hidden ? `<div class="empty">絞り込みで ${hidden}個 を隠しています</div>` : '');
+  // 拠点タブ：村の絵・戦力・称号、タブの印（新しい装備の数・戦力が上がる装備）
+  $('campPow').textContent = fmt(st.power);
+  const tt = titleText();
+  $('campTag').innerHTML = tt ? `<small>称号</small>〈${esc(tt)}〉` : '';
+  $('campTag').classList.toggle('hidden', !tt);
+  const nNew = SAVE.inv.filter(i => i.isNew).length, better = SAVE.inv.some(i => gain.get(i) > 0.5 || (!gain.has(i) && powerWith(i) - st.power > 0.5));
+  $('bagBadge').textContent = nNew ? String(nNew) : '';
+  $('gearBadge').textContent = better ? '▲' : '';
   renderHub();
+  kickCamp();
 }
+
+// ---------- タブ（拠点・装備・所持品） ----------
+let tab = 'tabHome';
+export const homeVisible = () => tab === 'tabHome' && !$('base').classList.contains('hidden') && $('title').classList.contains('hidden');
+export function showTab(id){
+  tab = id;
+  for (const t of ['tabHome', 'tabGear', 'tabBag']) $(t).classList.toggle('hidden', t !== id);
+  document.querySelectorAll('#tabbar [data-tab]').forEach(b => { const on = b.dataset.tab === id; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
+  window.scrollTo(0, 0);
+  if (id === 'tabHome') kickCamp(); else stopCamp();
+}
+document.querySelectorAll('#tabbar [data-tab]').forEach(b => b.onclick = () => showTab(b.dataset.tab));
+document.querySelectorAll('[data-ic]').forEach(el => { el.outerHTML = icon(el.dataset.ic); });
+$('setBtn').innerHTML = icon('gear');
+setupCamp($('campCv'), homeVisible);
+// 村の絵のタップ：建物→その施設、主人公→見た目（称号・マント）
+$('campCv').addEventListener('click', ev => {
+  const r = $('campCv').getBoundingClientRect(), id = campHit(ev.clientX - r.left, ev.clientY - r.top);
+  if (id === 'hero') openLook();
+  else if (id) openFacilities(false, id);
+});
 function setLineHTML(id, n){
   const S = SETS[id];
   return `<div class="setline" style="--sc:${S.c}"><b>${S.n}</b> ${n}/4　${[2,3,4].map(k => `<span class="${n >= k ? 'on' : 'off'}">${k}：${S.b[k]}</span>`).join('　')}</div>`;
@@ -90,7 +124,7 @@ $('autoSel').onchange = e => {
 };
 $('goBtn').onclick = openSortie;
 // 出撃の選択：難易度と、どこから走るか（チェックポイント）
-function openSortie(){
+export function openSortie(){
   const P = SAVE.prog;
   if (P.maxDiff === 1 && !P.cp[1]){ startRun({diff:1, start:0}); return; }
   let d = P.diff;
@@ -221,7 +255,7 @@ export function openItem(id){
       ${equipBtns}
       <button id="aUp" ${it.up >= 10 || !canPay(uc) ? 'disabled' : ''}>${it.up >= 10 ? '強化 最大' : `強化 +${it.up + 1}<br><small>${costText(uc)}</small>`}</button>
       ${key ? '' : `<button id="aLock">${it.lock ? '保護を外す' : '保護する'}</button>`}
-      ${key ? '' : `<button id="aSalv" ${it.lock ? 'disabled' : ''}>分解<br><small>+${fmt(sv)}G＋${matsText(sm)}</small></button>`}
+      ${key ? '' : `<button id="aSalv" ${it.lock ? 'disabled' : ''}>分解<br><small>${goldChip(sv)}${matChip(sm.r, sm.n)}</small></button>`}
       <button id="aClose" class="${key ? '' : 'wide'}">閉じる</button>
     </div>`;
   $('modal').classList.remove('hidden');

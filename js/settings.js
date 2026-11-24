@@ -5,7 +5,7 @@ import { SAVE, SAVE_VERSION, lastSavedAt, saveGame, exportText, parseImport, app
 import { renderBase } from './base.js';
 import { closeModal, dialog, closeDialog, toast } from './ui.js';
 import { offlineStatus, updateReady } from './offline.js';
-import { isMuted, setMuted } from './audio.js';
+import { isMuted, setMuted, setVolumes, sfx } from './audio.js';
 import { toggleMute } from './run.js';
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]));
@@ -31,6 +31,21 @@ async function copyText(text, ta){
   } catch(e){ return false; }
 }
 
+const ST = () => SAVE.settings;
+const muteLabel = () => isMuted() ? '音：すべて OFF（タップで ON）' : '音：ON（タップですべて OFF）';
+function toggleHTML(k, name, note){
+  const on = !!ST()[k];
+  return `<div class="tgl"><div><b>${name}</b><small>${note}</small></div><button class="small sw ${on ? 'on' : ''}" data-tg="${k}" role="switch" aria-checked="${on}">${on ? 'ON' : 'OFF'}</button></div>`;
+}
+// 設定を反映する（起動時・変更時・読み込み時）
+export function applySettings(){
+  const S = ST();
+  setMuted(!!S.mute);
+  setVolumes(S.bgm, S.sfx);
+  document.body.classList.toggle('left', !!S.left);
+  document.body.classList.toggle('eco', !!S.eco);
+}
+
 export function openSettings(){
   saveGame();
   const sheet = $('sheet');
@@ -40,9 +55,19 @@ export function openSettings(){
     <div class="sub">セーブ形式 v${SAVE_VERSION} ・ 最終保存 ${timeText(lastSavedAt)}</div>
 
     <section class="sect">
-      <h4>効果音</h4>
-      <p class="note">iPhone のマナーモード中は鳴りません。</p>
-      <button class="wide-btn" id="sMute" aria-pressed="${isMuted()}">${isMuted() ? '効果音：OFF（タップで ON）' : '効果音：ON（タップで OFF）'}</button>
+      <h4>音</h4>
+      <p class="note">iPhone のマナーモード中は鳴りません。冒険中の「音」ボタンでも消せます。</p>
+      <button class="wide-btn" id="sMute" aria-pressed="${isMuted()}">${muteLabel()}</button>
+      <label class="slider" for="sBgm"><span>BGM</span><input type="range" id="sBgm" min="0" max="10" step="1" value="${Math.round(SAVE.settings.bgm*10)}"><b id="sBgmV">${Math.round(SAVE.settings.bgm*10)}</b></label>
+      <label class="slider" for="sSfx"><span>効果音</span><input type="range" id="sSfx" min="0" max="10" step="1" value="${Math.round(SAVE.settings.sfx*10)}"><b id="sSfxV">${Math.round(SAVE.settings.sfx*10)}</b></label>
+    </section>
+
+    <section class="sect">
+      <h4>画面と操作</h4>
+      ${toggleHTML('shake', '画面の揺れ', '被弾・会心・ボスの攻撃で画面が揺れる')}
+      ${toggleHTML('dmgNum', 'ダメージの数字', '敵に当てたダメージを数字で出す')}
+      ${toggleHTML('eco', '省電力モード', '1秒に30コマ・画面を少し粗く・粒を減らす・拠点の絵を止める。長いフライト向け')}
+      ${toggleHTML('left', 'ボタンを左に', '冒険中の「音」「一時停止」を左下に置く（左手で持つとき）')}
     </section>
 
     <section class="sect">
@@ -78,9 +103,20 @@ export function openSettings(){
 
   $('sMute').onclick = () => {
     toggleMute();
-    $('sMute').textContent = isMuted() ? '効果音：OFF（タップで ON）' : '効果音：ON（タップで OFF）';
+    $('sMute').textContent = muteLabel();
     $('sMute').setAttribute('aria-pressed', String(isMuted()));
   };
+  for (const [id, k] of [['sBgm', 'bgm'], ['sSfx', 'sfx']]){
+    const el = $(id);
+    el.oninput = () => { ST()[k] = Number(el.value)/10; $(id + 'V').textContent = el.value; applySettings(); };
+    el.onchange = () => { saveGame(); if (k === 'sfx') sfx('up'); };
+  }
+  $('sheet').querySelectorAll('[data-tg]').forEach(b => b.onclick = () => {
+    const k = b.dataset.tg, on = !ST()[k];
+    ST()[k] = on; saveGame(); applySettings();
+    b.classList.toggle('on', on); b.textContent = on ? 'ON' : 'OFF'; b.setAttribute('aria-checked', String(on));
+    if (k === 'eco') renderBase();
+  });
   offlineStatus().then(t => { const el = $('sOffline'); if (el) el.textContent = t; });
   if ($('sReload')) $('sReload').onclick = () => { saveGame(); location.reload(); };
 
@@ -102,7 +138,7 @@ export function openSettings(){
       <div class="btns"><button class="primary" id="dOk">読み込む</button><button id="dNo">やめる</button></div>`);
     $('dOk').onclick = () => {
       const ok = applySave(data);
-      setMuted(!!SAVE.settings.mute);
+      applySettings();
       closeDialog(); closeModal(); renderBase();
       toast(ok ? 'セーブを読み込みました' : '読み込みましたが、保存に失敗しました');
     };
@@ -114,7 +150,7 @@ export function openSettings(){
       <p style="font-size:13px;text-align:left">${summary(SAVE)}</p>
       <p style="font-size:13px;text-align:left;color:var(--bad)">すべて消えて、最初の剣1本からやり直しになります。元に戻せません。</p>
       <div class="btns"><button class="danger" id="dOk">初期化する</button><button id="dNo">やめる</button></div>`);
-    $('dOk').onclick = () => { resetSave(); setMuted(false); closeDialog(); closeModal(); renderBase(); toast('データを初期化しました'); };
+    $('dOk').onclick = () => { resetSave(); applySettings(); closeDialog(); closeModal(); renderBase(); toast('データを初期化しました'); };
     $('dNo').onclick = closeDialog;
   };
 
