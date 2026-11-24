@@ -12,6 +12,7 @@ import { dailyPlan, seeded, recordRun, rewardText, claimText, claimShort, DAILY_
 import { hideTitle } from './title.js';
 import { FOES2, BOSSES2 } from './foes.js';
 import { BOSS_ATK, BOSS_SET, BOSS_TIPS } from './bossatk.js';
+import { PATTERNS, BOSS_PAT, BOSS_LINES } from './bosspat.js';
 
 export const VH = 300, GY = 255, PX = 70;
 export let R = null, cv = $('cv'), ctx = cv.getContext('2d');
@@ -299,7 +300,8 @@ export const HINTS = {
 setMeetHint(k => meet(k));
 for (const [k, f] of Object.entries(FOES2)) HINTS[k] = f.hint;
 for (const [k, b] of Object.entries(BOSSES2)) HINTS[k] = b.hint;
-for (const [k, t] of Object.entries(BOSS_TIPS)) HINTS[k] = `${BOSSES[k].n}：${t}`;   // ボスの説明は技に合わせる
+// ボスの説明（初めて会ったとき・図鑑）：技の名前から作る
+for (const [k, P] of Object.entries(BOSS_PAT)) if (BOSSES[k]) HINTS[k] = `${BOSSES[k].n}：技「${P.p1.map(i => PATTERNS[i].n).join('」「')}」、第2形態で「${P.p2.map(i => PATTERNS[i].n).join('」「')}」、最後に大技「${PATTERNS[P.fin].n}」`;
 Object.assign(HINTS, {
   'atk-zig':'ジグザグ弾：点線が通り道。自分のところが赤なら跳ぶ／青なら跳ばない',
   'atk-homing':'追尾弾：高さを追いかけ、手前で高さが決まる。線が赤なら跳ぶ／青なら跳ばない',
@@ -313,6 +315,10 @@ Object.assign(HINTS, {
   'atk-dark':'闇：しばらく周りが見えにくい。予告の線と輪を見る',
   'atk-dive':'急降下：飛んでいるボスが低く突っ込む。長押しで高く跳ぶ',
   'atk-charge':HINTS.charge, 'atk-beam':HINTS.beam,
+  turns:'ボスのターン：技のあとに「チャンス」。ボスが息切れして、攻撃が1.5倍効く',
+  chance:'チャンス：ボスが息切れ中。いまのうちに削る',
+  float:'浮遊：押すと上がる・離すと下がる。当たるのは胸のハートだけ。すき間を通る',
+  col:'色の弾：青は動くと当たる（いちばん下か上でじっと）／橙は止まると当たる（動き続ける）',
 });
 function meet(key){
   const F = SAVE.prog.foes;
@@ -417,6 +423,8 @@ export function step(dt){
   if (R.slowmo > 0){ R.slowmo -= dt; dt *= 0.3; }   // ボス撃破のスロー
   if (R.zoneCard && (R.zoneCard.t -= dt) <= 0) R.zoneCard = null;
   if (R.dark > 0) R.dark -= dt;
+  if (R.boss && R.boss.say && (R.boss.say.t -= dt) <= 0) R.boss.say = null;
+  if (R.winSay && (R.winSay.t -= dt) <= 0) R.winSay = null;
   R.healBud = Math.min(R.p.maxHp*HURT.heal, (R.healBud ?? 0) + R.p.maxHp*HURT.heal*dt);   // 倒したときの回復の上限（1秒あたり）
   if (R.bossFx && (R.bossFx.t -= dt) <= 0) R.bossFx = null;
   R.t += dt;
@@ -457,11 +465,19 @@ export function step(dt){
   updateHorde(dt);
   updateGimmick(dt, scroll);
 
+  // 浮遊（ボスの技）：押しているあいだ上がる・離すと下がる。いちばん上・下ではとまる
+  if (R.float){
+    const tv = p.hold ? -FLOAT.up : FLOAT.down;
+    p.vy += (tv - p.vy) * Math.min(1, dt*14);
+    p.y += p.vy*dt;
+    if (p.y > GY){ p.y = GY; p.vy = 0; }
+    if (p.y < GY - FLOAT.h){ p.y = GY - FLOAT.h; p.vy = 0; }
+    p.jumps = 0; p.buf = 0;
+  }
   // 自分：上昇中に押し続けていると重力が弱い（高く跳ぶ）
   const air = p.y < GY;
-  p.vy += (p.vy < 0 && p.hold ? JUMP.gRise : JUMP.gFall) * dt;
-  p.y += p.vy*dt;
-  if (p.y >= GY){
+  if (!R.float){ p.vy += (p.vy < 0 && p.hold ? JUMP.gRise : JUMP.gFall) * dt; p.y += p.vy*dt; }
+  if (!R.float && p.y >= GY){
     if (air && p.vy > 300) burst(PX, GY, 'rgba(230,230,220,.8)', 4);
     if (air && p.vy > 200){
       onLand();
@@ -808,41 +824,76 @@ function updateBoss(e, dt, realDt = dt){
   if (!e.last25 && e.hp < e.maxHp * LAST_HP){ e.last25 = true; R.banner = {t:2, txt:'最後のあがき！', c:'#ff5b4a'}; meet('last'); shake(0.3, 3); sfx('boss'); }
   if (e.fightT >= BOSS_LIMIT){ R.flash = {c:'#ff3b2f', t:0.6, max:0.6}; shake(0.6, 6); sfx('bosskill'); endRun(false, 'boss'); return; }
   const over = e.fightT - BOSS_RAGE;
-  if (over > 0 && !e.rage){ R.banner = {t:2, txt:'ボスが怒った！', c:'#ff5b4a'}; sfx('boss'); shake(0.4, 3); }
+  if (over > 0 && !e.rage){ R.banner = {t:2, txt:'ボスが怒った！', c:'#ff5b4a'}; say(e, 'rage'); sfx('boss'); shake(0.4, 3); }
   e.rage = over > 0 ? 1 + 0.3 + over * 0.03 : 0;   // 怒った瞬間に +30%、その後も毎秒 +3%
   const pow = e.rage || 1;
   // 第2形態
   if (!e.p2 && e.hp < e.maxHp * 0.5){
-    e.p2 = true; e.q = []; e.tele = 0; e.cd = 0.9; e.pause = 0.8;
+    e.p2 = true; say(e, 'p2');
     R.banner = {t:2, txt:`${bossName(e)} 第2形態！`, c:'#ff5b4a'};
     R.flash = {c:'#ff5b4a', t:0.3, max:0.3}; shake(0.4, 4); sfx('boss');
   }
   if (e.pause > 0){ e.pause -= dt; return; }
-  if (e.tele > 0){
-    e.tele -= dt;
-    if (e.tele <= 0) startAttack(e);
+  // ---- ターン：話す → 技の予告 → 攻撃 → チャンス（息切れ。よく効く）→ 次の技 ----
+  if (!e.turn){ e.turn = 'talk'; e.turnT = 1.6; say(e, 'intro'); e.patL = {}; meet('turns'); }
+  e.turnT -= dt;
+  if (e.turn === 'talk'){ if (e.turnT <= 0) nextPattern(e); return; }
+  if (e.turn === 'tele'){
+    e.tele = Math.max(0, e.turnT);
+    if (e.turnT <= 0){ e.tele = 0; startAttack(e); }
     return;
   }
-  if (e.q.length){
+  if (e.turn === 'attack'){
     e.qt += dt;
     while (e.q.length && e.q[0].at <= e.qt) bossAct(e, e.q.shift(), pow);
+    if (!e.q.length && e.qt >= e.atkEnd && !e.charging){   // 弾が通り過ぎたらチャンス
+      e.turn = 'chance'; e.turnT = CHANCE.dur / Math.min(1.6, pow); endFloat();
+      R.banner = {t:1.4, txt:'チャンス！', c:'#ffe14d'}; say(e, 'chance'); meet('chance');
+    }
     return;
   }
-  e.cd -= dt;
-  if (e.combo > 0) e.cd = Math.min(e.cd, 0);   // 連続技：すぐ次の攻撃
-  if (e.cd <= 0){
-    // 技はボスごとに専用（bossatk.js）。第2形態では技が増え、ときどき2つ続けて来る
-    const set = BOSS_SET[e.boss], pool = (e.p2 ? [...set.p1, ...set.p2] : set.p1).filter(a => !(e.last[0] === a && e.last[1] === a));   // 同じ技は3回続けない
-    if (e.p2 && !(e.combo > 0) && Math.random() < 0.22){ e.combo = 2; R.banner = {t:1.2, txt:'連続攻撃！', c:'#ff8a6b'}; }
-    if (e.combo > 0) e.combo--;
-    e.next = pick(pool); e.last = [e.next, e.last[0]];
-    e.plan = planAttack(e, BOSS_ATK[e.next]);
-    e.tele = BOSS_ATK[e.next].tele * (e.rage ? 0.85 : 1) * (e.p2 ? 0.9 : 1) * (e.combo > 0 || e.inCombo ? 0.8 : 1);
-    e.inCombo = e.combo > 0;
-    e.cd = Math.max(1.4, 2.4 - (e.lv - R.lvOff)*0.03) / Math.min(2, pow) * (e.p2 ? 0.85 : 1) * (e.last25 ? 0.75 : 1);
-    sfx('warn');
-  }
+  if (e.turn === 'chance' && e.turnT <= 0) nextPattern(e);
 }
+// ボス戦のターン：チャンスのあいだは攻撃が止まり、ダメージが mul 倍
+export const CHANCE = {dur:2.6, mul:1.5};
+// 浮遊：押しているあいだ上がる・離すと下がる。h：動ける高さ。当たるのは胸のハート（半径 heart）
+export const FLOAT = {up:170, down:170, h:118, heart:4};
+// セリフ（ボスの上に吹き出し）
+function say(e, key, txt){
+  const L = BOSS_LINES[e.boss];
+  const t = txt || (L && L[key]);
+  if (t) e.say = {txt:t, t:2.4};
+}
+// 次の技を選ぶ：HP25%を切ったら大技（1回）。それ以外は使える技から（同じ技は続けない）。くり返すほど激しくなる
+function nextPattern(e){
+  const P = BOSS_PAT[e.boss];
+  let id;
+  if (e.last25 && !e.finDone){ id = P.fin; e.finDone = true; R.banner = {t:2, txt:'大技！', c:'#ff5b4a'}; }
+  else {
+    const pool = [...P.p1, ...(e.p2 ? P.p2 : [])].filter(x => x !== e.lastPat);
+    id = pick(pool.length ? pool : P.p1);
+  }
+  e.lastPat = id; e.next = id;
+  const L = e.patL[id] = (e.patL[id] ?? -1) + 1;
+  const pat = PATTERNS[id];
+  e.plan = pat.make(L, Math.random).map(([at, a, o]) => planQ(at, a, o)).sort((x, y) => x.at - y.at);
+  e.mode = pat.mode;
+  e.turn = 'tele'; e.turnT = 1.0 * (e.rage ? 0.85 : 1); e.tele = e.turnT;
+  if (pat.line) say(e, null, pat.line);
+  if (pat.mode === 'float') startFloat();
+  sfx('warn');
+}
+function planQ(at, a, o){
+  const q = {at, a, o:o || {}};
+  if (o && o.lane){ q.h = o.lane === 'rand' ? (Math.random() < 0.5 ? 'low' : 'high') : o.lane === 'alt' ? (Math.random() < 0.5 ? 'low' : 'high') : o.lane; }
+  if (a === 'zig') q.m = 2 + Math.floor(Math.random()*2);
+  return q;
+}
+// 浮遊の始まりと終わり（予告のときに切り替えて、慣れる時間をとる）
+const TIP_JUMP = 'タップでジャンプ（長押しで高く・2段まで）', TIP_FLOAT = '浮遊中：押す＝上がる／離す＝下がる（当たるのは胸のハート）';
+const setTip = t => { const el = document.querySelector('.runbar .tip'); if (el) el.textContent = t; };
+function startFloat(){ if (R.float) return; R.float = true; R.p.jumps = 0; R.banner = {t:1.6, txt:'浮遊！ 押す＝上がる／離す＝下がる', c:'#ff8ad0'}; meet('float'); setTip(TIP_FLOAT); }
+export function endFloat(){ setTip(TIP_JUMP); if (!R || !R.float) return; R.float = false; R.p.vy = Math.min(R.p.vy, 0); }
 // 技の中身を、予告の前に決めておく（弾の高さなど。予告の線に使う）
 function planAttack(e, A){
   let alt = Math.random() < 0.5;
@@ -856,6 +907,7 @@ function planAttack(e, A){
 // 予告が終わったら、攻撃の中身（時間差の行動の列）を積む
 function startAttack(e){
   e.q = (e.plan || []).map(q => ({...q})); e.qt = 0;
+  e.turn = 'attack'; e.atkEnd = (e.q.length ? e.q[e.q.length - 1].at : 0) + (e.mode === 'float' ? 3.0 : 2.2);   // 最後の弾が通り過ぎるまで
   for (const q of e.q) if (HINTS['atk-' + q.a]) meet('atk-' + q.a);   // 初めて見る動きの説明
 }
 // 突進：自分のいる位置の少し後ろまで一気に走り、ゆっくり戻る。体に当たるとダメージ（高く跳べば越えられる）
@@ -938,10 +990,32 @@ function bossAct(e, q, pow){
       sfx('warn'); break;
     case 'dark':
       R.dark = Math.max(R.dark || 0, o.dur || 3); sfx('boss'); break;
+    // ---- 浮遊の技 ----
+    case 'fb': {   // 弾：f＝高さ（0 下〜1 上）。mo：sine（波）/ bounce（上下ではね返る）
+      const y = fY(o.f ?? 0.5);
+      R.eshots.push({kind:'fb', x:Math.max(x0, PX + 200), y, y0:y, vx:-(o.sp || 160), vy:o.vy || 0, mo:o.mo, amp:o.amp || 0, fq:o.fq || 2, ph:o.ph || 0, t:0,
+        r:o.r || 6, c:o.c, sk:o.sk, col:o.col, dmg, src:'boss-fb'});
+      if (o.col) meet('col');
+      break;
+    }
+    case 'fwall': {   // すき間のある壁（full：すき間なし。色のルールの壁）
+      R.eshots.push({kind:'fwall', x:Math.max(x0, PX + 200), vx:-(o.sp || 150), f:o.f ?? 0.5, gap:o.full ? 0 : (o.gap ?? 0.32), w:12, c:o.c, col:o.col, dmg, src:'boss-fwall'});
+      if (o.col) meet('col');
+      sfx('thud'); break;
+    }
+    case 'flaser':   // 横に走る光：予告の線のあと出る。a〜b の高さ
+      R.eshots.push({kind:'flaser', a:o.a, b:o.b, tele:o.tele || 0.8, max:o.tele || 0.8, dur:o.dur || 0.6, x1:x0, dmg:e.dmg * pow, src:'boss-flaser'});
+      sfx('warn'); break;
   }
 }
 // 弾が体に当たったか（弾の中心と半径・主人公の体の高さ30）
 export const zigY = (x0, x, m) => (ORB.low + ORB.high)/2 - (ORB.low - ORB.high)/2 * Math.cos(Math.PI * m * (x0 - x) / Math.max(1, x0 - PX));
+// 浮遊の高さ：f（0＝いちばん下〜1＝いちばん上）→ ハートの高さ（ゲーム内の y）
+export const fY = f => GY - 15 - f * FLOAT.h;
+const soulY = () => R.p.y - 15;
+// 色のルール：青＝動いていると当たる／橙＝止まっていると当たる／色なし＝いつも当たる
+const colorHurts = col => { const moving = Math.abs(R.p.vy) > 20; return col === 'blue' ? moving : col === 'orange' ? !moving : true; };
+const soulHit = (x, y, r, col) => Math.abs(x - PX) < r + FLOAT.heart && Math.abs(y - soulY()) < r + FLOAT.heart && colorHurts(col);
 const HOMING_LOCK = 110;   // 追尾弾の高さが決まる距離（主人公の前）。決まったら線が出る（低い＝跳ぶ／高い＝跳ばない）
 const hitBody = s => Math.abs(s.x - PX) < s.r + 8 && s.y + s.r > R.p.y - 30 && s.y - s.r < R.p.y;
 // 敵の弾・ボスの攻撃
@@ -1026,6 +1100,28 @@ function updateEShots(dt, scroll){
       if (s.y >= GY - 6){
         s.dead = true; burst(s.x, GY - 6, s.c || '#ff6a2a', 12); shake(0.35, 5); sfx('stomp');
         R.eshots.push({kind:'wave', x:s.x, y:GY, vx:-230, w:16, h:24, dmg:s.dmg, src:s.src + '-wave', c:s.c});
+      }
+    } else if (s.kind==='fb'){
+      s.t += dt; s.x += (s.vx - scroll)*dt;
+      if (s.mo === 'sine') s.y = s.y0 - Math.sin(s.t*s.fq + s.ph) * s.amp * FLOAT.h;
+      else { s.y += s.vy*dt; if (s.y > GY - 4){ s.y = GY - 4; s.vy = -Math.abs(s.vy); } if (s.y < GY - FLOAT.h - 26){ s.y = GY - FLOAT.h - 26; s.vy = Math.abs(s.vy); } }
+      if (!s.done && soulHit(s.x, s.y, s.r, s.col)){ s.done = true; hurtPlayer(s.dmg, s.src); burst(s.x, s.y, s.c || '#fff', 5); s.dead = true; }
+      if (s.x < -40) s.dead = true;
+    } else if (s.kind==='fwall'){
+      s.x += (s.vx - scroll)*dt;
+      if (!s.done && Math.abs(s.x - PX) < s.w/2 + FLOAT.heart){
+        const sy = soulY(), gc = fY(s.f), gh = s.gap * FLOAT.h / 2;
+        const inGap = s.gap > 0 && Math.abs(sy - gc) < gh - FLOAT.heart;
+        if (!inGap && colorHurts(s.col)){ s.done = true; hurtPlayer(s.dmg, s.src); }
+      }
+      if (s.x < -40) s.dead = true;
+    } else if (s.kind==='flaser'){
+      if (s.tele > 0) s.tele -= dt;
+      else {
+        s.dur -= dt;
+        const sy = soulY(), y1 = fY(s.b), y0 = fY(s.a);
+        if (!s.done && sy >= y1 - FLOAT.heart && sy <= y0 + FLOAT.heart){ s.done = true; hurtPlayer(s.dmg, s.src); }
+        if (s.dur <= 0) s.dead = true;
       }
     } else if (s.kind==='beam'){
       // 光線：しばらく出続ける。低い光線は足が地面近くにあると当たり、高い光線は体が高いところにあると当たる
@@ -1137,6 +1233,7 @@ export function hit(e, base, noProc, skill, sCrit){
   }
   if (skill && R.sk.slowT > 0) mul *= R.sk.evo.time ? 1.4 : 1.25;
   if (e.exposed > 0) mul *= WARD.expMul;   // 結界を割ったあとは、しばらく何でもよく効く
+  if (e.type === 'boss' && e.turn === 'chance') mul *= CHANCE.mul;   // チャンス（息切れ）：よく効く
   // ボスへのスキル：スキルの威力は雑魚のHP（Lvごとに×1.3）に合わせて伸びるが、ボスのHPは×1.22でしか伸びない。
   // そのままだと奥のボスほどスキルで一瞬で溶けるので、最初のボス（敵Lv6）を基準にその差を打ち消す
   if (skill && e.type === 'boss') mul *= Math.pow(BOSS_GROW / GROW.hp, e.lv - R.lvOff - 6);
@@ -1238,7 +1335,8 @@ function onKill(e){
     R.bossLog.push({id:e.boss, at:R.nextBoss, sec:Math.round(e.fightT), hits:R.bossHits});
     if (!R.bossHits){ R.flawless++; R.banner = {t:2.6, txt:'ノーダメージ撃破！', c:'#7fe8ff'}; }
     R.boss = null;
-    R.eshots = []; R.dark = 0;
+    R.eshots = []; R.dark = 0; endFloat();
+    { const L = BOSS_LINES[e.boss]; if (L) R.winSay = {txt:L.win, t:2.8, x:cx, y:e.y - e.h - 10}; }   // 倒されたときのひとこと
     R.p.hp = Math.min(R.p.maxHp, R.p.hp + R.p.maxHp*(R.healBoss ? 1 : 0.3));
     const P = SAVE.prog, PP = R.deep ? P.deep : P, b = R.nextBoss;
     if (b >= R.clearDist){
@@ -1390,6 +1488,7 @@ export function jump(){
   if (!R || R.paused || R.over) return;
   const p = R.p;
   p.hold = true;
+  if (R.float) return;   // 浮遊中は押しているあいだ上がるだけ
   // 落下中で、もうすぐ着地するなら2段目を使わず、着地と同時に跳ぶ
   const landingSoon = p.y < GY && p.vy > 0 && p.y + p.vy*JUMP.buffer + 0.5*JUMP.gFall*JUMP.buffer*JUMP.buffer >= GY;
   if (p.jumps < R.st.maxJumps && !landingSoon) doJump();
@@ -1409,7 +1508,7 @@ export function burst(x, y, c, n){
 }
 
 function endRun(retreat, reason){
-  clearRunSnap();
+  clearRunSnap(); R.float = false; setTip(TIP_JUMP);
   R.over = true; R.overAt = performance.now(); kick(); R.endReason = retreat ? 'retreat' : reason || 'dead';
   SAVE.runs++;
   const dist = Math.floor(R.dist), P = SAVE.prog;

@@ -6,8 +6,9 @@ import { drawSkillIcon } from './skillart.js';
 import { drawFoe2, drawBossGeneric } from './foeart.js';
 import { FOES2 } from './foes.js';
 import { BOSS_ATK } from './bossatk.js';
+import { PATTERNS } from './bosspat.js';
 import { SAVE } from './save.js';
-import { GY, PX, R, ctx, VW, SCALE, DPR, OY, VTOP, VBOT, zone, zoneIdx, zoneAt, bossName, bossTotal, elv, BOSS_LIMIT, ORB, PILLAR, VENT, ventState, BEAM, CHARGE, WARD, zigY } from './run.js';
+import { GY, PX, R, ctx, VW, SCALE, DPR, OY, VTOP, VBOT, zone, zoneIdx, zoneAt, bossName, bossTotal, elv, BOSS_LIMIT, ORB, PILLAR, VENT, ventState, BEAM, CHARGE, WARD, zigY, FLOAT, fY } from './run.js';
 import { ACTIVES, PASSIVES } from './skills.js';
 
 // 見た目だけに使う乱数（ゲームの乱数 Math.random を消費しない）
@@ -28,7 +29,7 @@ function glowImg(c){
   return g;
 }
 // L0：見えている左端（ゲーム内の x）。横持ちのボス戦で手前をずらしたとき（R.camX）に左へ広がる
-let L0 = -10;
+let L0 = -10, sayQ = null;
 // bgA：背景を切り替えるとき（前のエリアの景色を薄く重ねる）の不透明度
 let bgA = 1;
 function glow(x, y, r, c, a = 1){ ctx.globalAlpha = a*bgA; ctx.drawImage(glowImg(c), x - r, y - r, r*2, r*2); ctx.globalAlpha = bgA; }
@@ -270,7 +271,9 @@ export function draw(){
   { const s = Math.max(0.35, 1 - (GY - R.p.y)/140); ctx.beginPath(); ctx.ellipse(PX, GY + 1, 10*s, 3*s, 0, 0, Math.PI*2); ctx.fill(); }
 
   for (const e of R.enemies) drawEnemy(e);
+  if (R.float) drawFloatBand();
   drawPlayer();
+  if (R.float) drawHeart();
   drawSkills();
 
   // 自分の弾
@@ -354,6 +357,8 @@ export function draw(){
     if (R.boss) drawBossTele(R.boss);
     for (const s of R.eshots) if (s.kind === 'drop' && s.tele > 0) drawEShot(s);
   }
+  if (R.winSay) speech(R.winSay.txt, R.winSay.x, R.winSay.y, Math.min(1, R.winSay.t*2));
+  if (sayQ){ speech(sayQ.txt, sayQ.x, sayQ.y, sayQ.a); sayQ = null; }
   // 時の砂：画面を少し紫に
   if (R.sk.slowT > 0){ ctx.globalAlpha = Math.min(0.18, R.sk.slowT*0.3) * (R.sk.slowF < 0.3 ? 1.5 : 1); ctx.fillStyle = '#9a7dff'; ctx.fillRect(L0, VTOP, VW + 20, VBOT - VTOP); ctx.globalAlpha = 1; }
   // ダメージ数字（会心は大きく、出た瞬間に弾む）
@@ -555,6 +560,36 @@ function drawShot(x, y, r, sk, c, vx = -1, rot = 0){
   const col = sk === 'fire' ? '#ff8a3a' : c || '#ff6a9a';
   glow(x - dir*8, y, r*1.6, col, 0.35); glow(x, y, r*2.4, col, 0.9); circ(x, y, r*0.6, '#fff');
 }
+// 浮遊の範囲（上と下の線）と、浮遊中の「ハート」
+function drawFloatBand(){
+  const top = fY(1) - 10, a = 0.5 + 0.2*Math.sin(R.t*4);
+  ctx.strokeStyle = `rgba(255,140,210,${a})`; ctx.lineWidth = 1.5; ctx.setLineDash([8, 6]);
+  ctx.beginPath(); ctx.moveTo(L0, top); ctx.lineTo(VW + 10, top); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = 'rgba(255,140,210,.06)'; ctx.fillRect(L0, top, VW + 20, GY - top);
+}
+function drawHeart(){
+  const x = PX, y = R.p.y - 15, s = 1 + 0.1*Math.sin(R.t*8);
+  glow(x, y, 12, '#ff5aa0', 0.6);
+  ctx.save(); ctx.translate(x, y); ctx.scale(s, s);
+  ctx.fillStyle = '#ff3a7a'; ctx.beginPath(); ctx.moveTo(0, 4); ctx.bezierCurveTo(-7, -1, -4, -7, 0, -3); ctx.bezierCurveTo(4, -7, 7, -1, 0, 4); ctx.fill();
+  ctx.restore();
+}
+// 吹き出し（ボスのセリフ）
+function speech(txt, cx, by, alpha){
+  ctx.font = '10px -apple-system, sans-serif';
+  const maxW = Math.min(170, VW*0.6), words = [...txt], lines = [];
+  let cur = '';
+  for (const ch of words){ if (ctx.measureText(cur + ch).width > maxW){ lines.push(cur); cur = ch; } else cur += ch; }
+  if (cur) lines.push(cur);
+  const w = Math.max(...lines.map(l => ctx.measureText(l).width)) + 14, h = lines.length*13 + 8;
+  const x = Math.max(L0 + 14 + w/2, Math.min(VW - R.camX - w/2 - 6, cx)), y = Math.max(VTOP + 66, by - h);
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = 'rgba(255,255,255,.95)'; ctx.beginPath(); ctx.roundRect(x - w/2, y, w, h, 7); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(cx - 5, y + h); ctx.lineTo(cx + 3, y + h + 7); ctx.lineTo(cx + 5, y + h); ctx.fill();
+  ctx.fillStyle = '#1a1a2a'; ctx.textAlign = 'center';
+  lines.forEach((l, i) => ctx.fillText(l, x, y + 14 + i*13));
+  ctx.globalAlpha = 1;
+}
 function drawEShot(s){
   if (s.kind==='rock'){
     circ(s.x, s.y, s.r, s.big ? '#7d756a' : '#8b8378');
@@ -593,6 +628,25 @@ function drawEShot(s){
   } else if (s.kind==='meteor'){
     ctx.strokeStyle = 'rgba(255,200,120,.5)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.ellipse(s.x, GY + 1, 22, 5, 0, 0, Math.PI*2); ctx.stroke();
     glow(s.x, s.y, 26, s.c || '#ff6a2a', 0.8); circ(s.x, s.y, s.r, '#5a3a2a'); circ(s.x - 4, s.y - 4, 4, '#8a5a3a');
+  } else if (s.kind==='fb'){
+    if (s.col){ const cc = s.col === 'blue' ? '#4ea3ff' : '#ffa53a'; glow(s.x, s.y, s.r*2.4, cc, 0.7); circ(s.x, s.y, s.r, cc); circ(s.x, s.y, s.r*0.45, '#fff'); }
+    else if (s.sk === 'leaf'){ ctx.fillStyle = s.c || '#5fae4e'; ctx.beginPath(); ctx.ellipse(s.x, s.y, s.r*1.3, s.r*0.6, Math.sin(R.t*6 + s.ph)*0.8, 0, Math.PI*2); ctx.fill(); }
+    else drawShot(s.x, s.y, s.r, s.sk || '', s.c, s.vx, R.t*6);
+  } else if (s.kind==='fwall'){
+    const top = fY(1) - 14, bot = GY + 2, cc = s.col === 'blue' ? '#4ea3ff' : s.col === 'orange' ? '#ffa53a' : s.c || '#8b8378';
+    const draw2 = (y0, y1) => { if (y1 <= y0) return; ctx.fillStyle = cc; ctx.globalAlpha = s.col ? 0.85 : 1; ctx.fillRect(s.x - s.w/2, y0, s.w, y1 - y0); ctx.globalAlpha = 1; ctx.fillStyle = 'rgba(255,255,255,.3)'; ctx.fillRect(s.x - s.w/2, y0, 2, y1 - y0); };
+    if (s.gap > 0){ const gc = fY(s.f), gh = s.gap*FLOAT.h/2; draw2(top, gc - gh); draw2(gc + gh, bot); }
+    else { draw2(top, bot); if (s.col) glow(s.x, (top + bot)/2, 30, cc, 0.4); }
+  } else if (s.kind==='flaser'){
+    const y0 = fY(s.a) + FLOAT.heart + 2, y1 = fY(s.b) - FLOAT.heart - 2;
+    if (s.tele > 0){
+      const q = 1 - s.tele/s.max, bl = Math.sin(R.t*30) > 0;
+      ctx.fillStyle = `rgba(255,${bl ? 60 : 120},90,${0.12 + 0.18*q})`; ctx.fillRect(L0, y1, VW + 20, y0 - y1);
+      ctx.strokeStyle = `rgba(255,120,150,${0.5 + 0.4*q})`; ctx.lineWidth = 1.5; ctx.setLineDash([6, 5]); ctx.strokeRect(L0, y1, VW + 30, y0 - y1); ctx.setLineDash([]);
+    } else {
+      ctx.globalAlpha = 0.8; ctx.fillStyle = '#ffd0e8'; ctx.fillRect(L0, y1, VW + 20, y0 - y1);
+      ctx.globalAlpha = 1; ctx.fillStyle = '#ffffff'; ctx.fillRect(L0, (y0 + y1)/2 - 2, VW + 20, 4);
+    }
   } else if (s.kind==='beam'){
     const q = s.t / s.max, c = s.hi ? '#9cc8ff' : '#ff8ab0', th = BEAM.th * (0.6 + 0.4*Math.sin(R.t*40)*0.5 + 0.4);
     ctx.globalAlpha = 0.5*Math.min(1, q*3); ctx.fillStyle = c; ctx.fillRect(L0, s.y - th, s.x1 - L0, th*2);
@@ -913,10 +967,15 @@ function drawBoss(e, F){
   }
   if (e.tele > 0) bang(x, y - h - (e.boss === 'witch' ? 22 : e.boss === 'kingslime' ? 16 : 10) + lift, 22);
   // 技名（予告のあいだ）
-  if (e.tele > 0 && e.next && BOSS_ATK[e.next]){
-    ctx.textAlign = 'center'; ctx.font = 'bold 11px -apple-system, sans-serif'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.65)';
-    outlined(BOSS_ATK[e.next].n, x, y - h - (e.boss === 'witch' ? 40 : 30) + lift, '#ffe0c8');
+  const atkN = e.next && (PATTERNS[e.next] || BOSS_ATK[e.next]);
+  if (e.tele > 0 && atkN){
+    ctx.textAlign = 'center'; ctx.font = 'bold 12px -apple-system, sans-serif'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.7)';
+    outlined(atkN.n, x, y - h - (e.boss === 'witch' ? 40 : 30) + lift, e.mode === 'float' ? '#ffb0e0' : '#ffe0c8');
   }
+  // チャンス：息切れの汗と星
+  if (e.turn === 'chance'){ for (let k = 0; k < 3; k++){ const a2 = R.t*3 + k*2.1; circ(x + Math.cos(a2)*w*0.45, y - h - 6 + Math.sin(a2*2)*3, 2.2, '#ffe14d'); } }
+  // セリフの吹き出し
+  if (e.say) sayQ = {txt:e.say.txt, x, y:y - h - 50 + lift, a:Math.min(1, e.say.t*3)};   // 吹き出しは最後に（いちばん手前に）描く
   // 結界：青い泡と、あと何回たたけば割れるか
   if (e.ward){
     const cx = x, cy = y - h/2, r = Math.max(w, h)*0.75, a = Math.min(1, e.ward.t*2);
