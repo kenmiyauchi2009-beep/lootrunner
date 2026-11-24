@@ -80,6 +80,16 @@ export function initSkills(){
     R.sk.act[id] = Math.min(5, (R.sk.act[id] || 0) + n); R.sk.cd[id] = 0.3;
   }
 }
+// 脅威度：スキルが育つほど敵も強くなる（スキルは弱くしない）。
+//   脅威Lv ＝ 進化したスキル×2 ＋ 進化していないLv5の攻撃スキル×1。効き目は run.js の THREAT
+export function updateThreat(silent){
+  const S = R.sk, evos = Object.keys(S.evo).length, maxed = Object.entries(S.act).filter(([id, l]) => l >= 5 && !S.evo[id]).length;
+  const L = evos*2 + maxed, before = R.threat || 0;
+  R.threat = L;
+  if (!silent && L > before){ R.banner = {t:2.2, txt:`敵が強くなった！（脅威 Lv${L}）`, c:'#ff7a6b'}; meetHint('threat'); }
+}
+let meetHint = () => {};
+export const setMeetHint = f => { meetHint = f; };
 // 進化できるLv（ふつうは5。レジェンドで4になる）
 export const evoLv = id => R && (R.st.uniq.has('seed') || (id === 'blade' && R.st.uniq.has('orbit'))) ? 4 : 5;
 function mods(){
@@ -501,6 +511,7 @@ export function pickSkill(i){
   }
   else if (o.k === 'heal') R.p.hp = Math.min(R.p.maxHp, R.p.hp + R.p.maxHp*0.3);
   else { const g = goldBonus(); SAVE.gold += g; R.gold += g; }
+  updateThreat();
   S.pending--; S.choices = null; S.picks++;
   if (S.pending > 0){ openLevelUp(); return; }
   closeDialog();

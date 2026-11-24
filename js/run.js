@@ -7,7 +7,7 @@ import { closeModal, dialog, closeDialog } from './ui.js';
 import { renderBase } from './base.js';
 import { draw } from './render.js';
 import { sfx, unlockAudio, isMuted, setMuted, playBgm, duckBgm, pauseBgm } from './audio.js';
-import { initSkills, updateSkills, onLand, dropGem, openLevelUp, skillSummary, XP, catchUp, absorbHit, applyPassives } from './skills.js';
+import { initSkills, updateSkills, onLand, dropGem, openLevelUp, skillSummary, XP, catchUp, absorbHit, applyPassives, updateThreat, setMeetHint } from './skills.js';
 import { dailyPlan, seeded, recordRun, rewardText, claimText, claimShort, DAILY_MODS } from './meta.js';
 import { hideTitle } from './title.js';
 
@@ -110,6 +110,7 @@ export function startRun(opt = {}){
   R.zoneCard = {t:2.6, max:2.6, i:zoneIdx(), sub:daily ? '日替わりダンジョン' : deep ? `深層 難易度${diff}` : diff > 1 ? `難易度${diff}` : '', from:null};
   initSkills();
   applyPassives();
+  updateThreat(true);   // 「持って出撃」で最初から Lv5 のスキルがあるとき
   if (opt.resume) applySnap(opt.resume);
   else {
     if (start) catchUp(catchFor(start).lv);
@@ -169,6 +170,10 @@ export const ecenter = e => [e.x, e.y - e.h/2];
 export const alive = e => !e.dead && e.hp > 0 && !e.under;
 export function shake(t, amp){ if (!SAVE.settings.shake) return; R.shakeAmp = R.shake > 0 ? Math.max(R.shakeAmp, amp) : amp; R.shake = Math.max(R.shake, t); }
 
+// 脅威度（skills.js の updateThreat）1Lv ごとの効き目。スキルが育って楽になりすぎないよう、敵の側を強くする
+//   hp：雑魚のHP / dmg：攻撃 / spawn：出る量 / elite：エリートの出る率 / wall：大群の壁の大きさ / boss：ボスのHP
+export const THREAT = {hp:0.4, dmg:0.05, spawn:0.07, elite:0.25, wall:1, boss:0.05, max:12};
+const thr = () => Math.min(THREAT.max, R.threat || 0);
 // 敵の基本値（sp：歩く速さ）
 export const EB = {
   mini:    {hp:6,   dmg:12, w:16, h:12, gold:0, sp:45},   // 群れの小さいスライム：経験値だけ
@@ -217,7 +222,8 @@ export function mkEnemy(type, o = {}){
   const lv = elv(), bl = blv(), B = EB[type], rng = o.rng || Math.random;
   const hm = (type === 'boss' ? Math.pow(BOSS_GROW, bl - 1) * BOSS_TUNE.hp : hpScale(bl)) * R.hpMul;
   const dm = (type === 'boss' ? Math.pow(BOSS_DMG_GROW, bl - 1) : dmgScale(bl)) * R.dmgMul;
-  const e = {id:++R.eid, type, lv, x:VW+30, y:GY, hp:B.hp*hm, maxHp:B.hp*hm, dmg:B.dmg*dm, w:B.w, h:B.h, gold:B.gold, scale:1,
+  const tm = type === 'boss' ? 1 + THREAT.boss*thr() : 1 + THREAT.hp*thr();   // 脅威度
+  const e = {id:++R.eid, type, lv, x:VW+30, y:GY, hp:B.hp*hm*tm, maxHp:B.hp*hm*tm, dmg:B.dmg*dm*(1 + THREAT.dmg*thr()), w:B.w, h:B.h, gold:B.gold, scale:1,
     t:rng()*6, burnT:0, burnDps:0, burnAcc:0, burnTick:0.5, phase:'walk', throws:0, cd:1.6, tele:0, next:null, rockQ:0, rockT:0, hitFlash:0, wind:false, vel:0};
   if (type==='bat'){ e.lane = rng() < 0.5 ? 'low' : 'high'; e.baseY = BAT_LANE[e.lane]; e.y = e.baseY; }
   if (type==='ghost'){ e.ph = rng()*Math.PI*2; e.y = ghostY(e); }
@@ -260,11 +266,13 @@ export const HINTS = {
   beam:'光線：赤い線＝低い（跳んで空中にいる）／青い線＝高い（跳ばない）',
   ward:'結界：スキルがほとんど効かない。武器で3回たたくと割れて、ボスが止まる',
   last:'最後のあがき：HPが残り少ないと攻撃が速くなる',
+  threat:'脅威：スキルが育つと敵も強くなる（HP・数・エリート・大群）',
   frog:'跳ねガエル：ぴょんと跳ねて近づく。踏むか、跳び越える',
   cannon:'砲台：光ったら撃つ。赤い線＝低い弾（跳ぶ）／青い線＝高い弾（跳ばない）',
   spikeball:'鉄球：トゲで踏めない。跳び越えるか、先に倒す',
   wisp:'癒しの灯：周りの敵を回復する。先に倒す（下はくぐれる）',
 };
+setMeetHint(k => meet(k));
 function meet(key){
   const F = SAVE.prog.foes;
   if (F[key] || !HINTS[key]) return;
@@ -286,7 +294,7 @@ function spawnEnemy(){
   // 通常の難易度3から、新しい敵も混ざる
   if (!R.deep && !R.daily && R.diff >= NEW_FOES_FROM) for (const [k, [wt, from]] of Object.entries(NEW_FOES)) if (zd >= from) w[k] = (w[k] || 0) + wt;
   const type = pickW(w, rng);
-  const elite = R.dist - R.start > 120 && rng() < (ELITE.chance + d*ELITE.grow) * R.eliteMul;
+  const elite = R.dist - R.start > 120 && rng() < (ELITE.chance + d*ELITE.grow) * R.eliteMul * (1 + THREAT.elite*thr());
   const e = mkEnemy(type, {elite, rng});
   if (R.log) R.log.push([Math.round(d), type, elite ? 1 : 0, e.lane || '', e.elite ? e.elite.join('+') : '']);
   R.enemies.push(e);
@@ -298,7 +306,7 @@ function spawnEnemy(){
 export const HORDE = {every:40, walls:6, gap:1.0};
 // 大群の育ち具合の時計。日替わりはボス戦の長さで変わらないよう、走った距離から数える
 const hordeT = () => (R.daily ? R.dist / R.speed : R.t) + R.tOff;
-const wallSize = () => Math.min(18, 5 + Math.floor(hordeT() / 25));
+const wallSize = () => Math.min(18, 5 + Math.floor(hordeT() / 25)) + Math.round(THREAT.wall*thr());
 function updateHorde(dt){
   if (R.boss) return;
   if (!R.horde){
@@ -386,7 +394,7 @@ export function step(dt){
   }
   if (!R.boss && !(R.clearT > 0)){
     R.spawnT -= dt;
-    if (R.spawnT <= 0){ spawnEnemy(); R.spawnT = Math.max(0.45, 1.5 - dEff()/1500) * rnd(0.7, 1.3, R.cr); }
+    if (R.spawnT <= 0){ spawnEnemy(); R.spawnT = Math.max(0.45, 1.5 - dEff()/1500) / (1 + THREAT.spawn*thr()) * rnd(0.7, 1.3, R.cr); }
   }
   updateHorde(dt);
   updateGimmick(dt, scroll);
@@ -1245,6 +1253,7 @@ function applySnap(s){
     rerolls:num(k.rerolls, S.rerolls), picks:num(k.picks), pending:num(k.pending), shield:num(k.shield),
     choices:Array.isArray(k.choices) && k.pending > 0 ? k.choices : null});
   applyPassives();
+  updateThreat(true);
   if (R.daily){   // 日替わり：コースの乱数を作り直し、中断したところまで進める
     R.cr = countRng(seeded(R.daily.seed));
     for (let i = 0; i < num(s.crN); i++) R.cr();

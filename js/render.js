@@ -867,6 +867,11 @@ function drawHUD(H){
   rr(0, 0, VW * Math.min(1, S.xp / S.need), 4, 0, '#6fd3ff');
   ctx.textAlign = 'left'; ctx.font = 'bold 9px -apple-system, sans-serif';
   outlined(`Lv ${S.lv}`, 10, 34, '#9fe6ff');
+  if (R.threat){   // 脅威度：右上（ゴールドと難易度の下）
+    ctx.textAlign = 'right'; ctx.font = 'bold 9px -apple-system, sans-serif';
+    outlined(`脅威 Lv${R.threat}`, VW - 10, R.daily || R.deep || R.diff > 1 ? 46 : 34, '#ff8a7a');
+    ctx.textAlign = 'left';
+  }
   // 持っているスキル（絵のアイコン。攻撃は丸い枠、強化は四角い枠。進化は塗りつぶし）
   let ix = 10;
   const icon = (id, c, lv, evo, round) => {

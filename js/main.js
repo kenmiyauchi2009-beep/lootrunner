@@ -12,12 +12,12 @@ import { setupOffline } from './offline.js';
 import { setMuted, setVolumes, playBgm, bgmState } from './audio.js';
 import { showTitle, hideTitle } from './title.js';
 import { applySettings } from './settings.js';
-import { pickSkill, rerollSkills, ACTIVES, PASSIVES } from './skills.js';
+import { pickSkill, rerollSkills, ACTIVES, PASSIVES, updateThreat } from './skills.js';
 import * as META from './meta.js';
 import { openFacilities, openAchievements, openRecords, openDaily, openLook, nextGoal } from './hub.js';
 
 // 版の番号（sw.js の VERSION と同じにする）
-export const APP_VERSION = '1.8.0';
+export const APP_VERSION = '1.8.1';
 const loaded = loadGame();
 META.initLook();
 applySettings();
@@ -41,4 +41,4 @@ window.T = { get SAVE(){ return SAVE; }, get R(){ return R; }, drop, SKILL_RES, 
   SAVE_VERSION, migrate, exportText, parseImport, applySave, resetSave, openSettings,
   powerWith, equipKeyFor, smithUpgrade, smithReroll, smithValue, smithLock, salvage, upgradeCost, valueCost, affGrade, openCodex,
   mkEnemy, EB, GHOST, ghostY, ORB, PILLAR, VENT, ventState, BOSS_TELE, CP_CATCHUP, elv, DATA,
-  rerollSkills, META, openFacilities, openAchievements, openRecords, openDaily, openLook, nextGoal, hideTitle, applySettings, bgmState };
+  rerollSkills, updateThreat, META, openFacilities, openAchievements, openRecords, openDaily, openLook, nextGoal, hideTitle, applySettings, bgmState };
