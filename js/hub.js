@@ -39,37 +39,33 @@ export function renderHub(){
   const g = nextGoal();
   $('goal').innerHTML = `<span class="gic" style="color:${g.c || 'var(--accent)'}">${g.ic}</span>
     <span class="gtx"><small>次の目標</small><b>${g.t}</b><em>${g.d}</em></span><span class="gch">›</span>`;
+  $('goal').classList.toggle('warn', SAVE.inv.length >= SAVE.invMax);
   $('goal').onclick = g.act;
 }
 
-// 次の目標を1つ選ぶ：受け取れる報酬 → 戦力が上がる装備 → 強化できる施設 → 今日の日替わり → 次のボス・難易度 → 近い実績
+// 次の目標を1つ選ぶ：所持品がいっぱい → 戦力が上がる装備 → 強化できる施設 → 次のボス・難易度 → 近い実績
+// （実績はその場で受け取るので出さない。日替わりは自分のボタンに「今日はまだ」と出るので出さない）
 export function nextGoal(){
-  const can = achClaimable().length, cape = nextCape();
-  if (can) return {ic:icon('trophy'), t:`実績の報酬を受け取る（${can}件）`,
-    d:`ゴールド・素材・称号${cape ? ` ・ あと${Math.max(0, cape.need - achGot())}件でマント「${cape.n}」` : ''}`, act:() => openAchievements()};
+  if (SAVE.inv.length >= SAVE.invMax) return {ic:icon('bag'), c:'#ff9a7a', t:`所持品がいっぱい（${SAVE.inv.length}/${SAVE.invMax}）`,
+    d:'まとめて分解で空ける（保護・セット・レジェンドは残る）', act:() => { showTab('tabBag'); $('bulkBtn').click(); }};
   const power = computeStats(SAVE.equip).power;
   let best = null, gain = 0.5;
   for (const it of SAVE.inv){ const d = powerWith(it) - power; if (d > gain){ gain = d; best = it; } }
   if (best) return {ic:itemIcon(best.type), c:RAR[best.r].c, t:`もっと強い装備がある`, d:`${esc(best.name)} ・ 装備すると戦力 +${fmt(gain)}`, act:() => { showTab('tabBag'); openItem(best.id); }};
   const ups = Object.keys(FACILITIES).filter(canUpgradeFac).sort((a, b) => facCost(a).gold - facCost(b).gold);
   if (ups.length){ const id = ups[0], F = FACILITIES[id];
-    return {ic:icon(id), t:`${F.n}を Lv${facLv(id) + 1} にできる`, d:facNext(id), act:() => openFacilities(false, id)}; }
-  const D = SAVE.daily;
-  if (SAVE.runs >= 3 && !(D.key === dateKey() && D.tries)){
-    const plan = dailyPlan();
-    return {ic:icon('daily'), t:'今日の日替わりダンジョン', d:`${plan.mods.map(m => DAILY_MODS[m].n).join('・')} ・ ボスを倒すとゴールドと素材`, act:() => openDaily()};
-  }
+    return {ic:icon(id), c:FAC_C[id], t:`${F.n}を Lv${facLv(id) + 1} にできる`, d:facNext(id), act:() => openFacilities(false, id)}; }
   const P = SAVE.prog, md = P.maxDiff;
   if (!P.clears[md]){
     const b = P.best[md] || 0, i = Math.min(3, Math.floor(b / 500)), boss = BOSSES[ZONES[i].boss];
-    return {ic:icon('go'), t:`${md > 1 ? `難易度${md}：` : ''}${boss.n}を倒す（${(i + 1)*500}m）`,
+    return {ic:icon('flag'), t:`${md > 1 ? `難易度${md}：` : ''}${boss.n}を倒す（${(i + 1)*500}m）`,
       d:`今の最高 ${fmt(b)}m${i ? ` ・ ${i*500}m から出撃もできる` : ''}${i === 3 ? ' ・ 倒すと踏破' : ''}`, act:() => openSortie()};
   }
   // すべての難易度を踏破したら、いちばん近い実績
   const open = ACH.filter(a => !SAVE.ach[a.id]).map(a => [a, Math.min(1, a.v()/a.goal)]).sort((x, y) => y[1] - x[1]);
   if (open.length){ const [a, q] = open[0];
     return {ic:icon('trophy'), t:`実績「${a.n}」`, d:`${a.d} ・ ${Math.round(q*100)}%`, act:() => openAchievements()}; }
-  return {ic:icon('go'), t:'すべて達成！', d:'好きなだけ厳選を楽しもう', act:() => openSortie()};
+  return {ic:icon('flag'), t:'すべて達成！', d:'好きなだけ厳選を楽しもう', act:() => openSortie()};
 }
 
 // ---------- 施設 ----------
@@ -158,7 +154,7 @@ export function openAchievements(keep){
       ${s === 1 ? `<button class="primary small" data-ach="${a.id}">受け取る</button>` : s === 2 ? '<span class="adone">済</span>' : ''}
     </div>`;
   }).join('');
-  openSheet('ach', `<h3>実績</h3><div class="sub">達成 ${done}/${ACH.length}${can ? ` ・ 受け取れる ${can}件` : ''}<br>報酬を受け取ると、ゴールド・素材と一緒に<b>称号</b>が手に入る。受け取った数で<b>マント</b>も増える${cape ? `（次は「${cape.n}」：あと${Math.max(0, cape.need - achGot())}件）` : ''}</div>
+  openSheet('ach', `<h3>実績</h3><div class="sub">達成 ${done}/${ACH.length}${can ? ` ・ 受け取れる ${can}件` : ''}<br>達成するとその場で報酬（ゴールド・素材・<b>称号</b>）を受け取る。達成した数で<b>マント</b>も増える${cape ? `（次は「${cape.n}」：あと${Math.max(0, cape.need - achGot())}件）` : ''}</div>
     <div class="btns">${can > 1 ? `<button class="primary" id="achAll">まとめて受け取る（${can}件）</button>` : ''}<button id="achLook">見た目を変える（称号・マント）</button></div>
     <div class="achs">${rows}</div>`, keep);
   const after = msg => { toast(msg); renderBase(); openAchievements(true); };

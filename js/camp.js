@@ -213,7 +213,7 @@ export function drawCamp(){
   c.beginPath(); c.moveTo(0, H*0.86); c.quadraticCurveTo(W*0.5, H*0.76, W, H*0.88); c.lineTo(W, H*0.98); c.quadraticCurveTo(W*0.5, H*0.88, 0, H*0.97); c.fill();
   // 建物（奥の列）
   hits = [];
-  const n = FAC_IDS.length, sc = Math.min(1, W / 330) * 0.95;
+  const n = FAC_IDS.length, sc = Math.min(1.45, W / 330, H / 215) * 0.95;   // 幅と高さの両方に合わせて大きくする
   FAC_IDS.forEach((id, i) => {
     const x = W*(i + 0.5)/n, l = facLv(id);
     drawBuilding(c, id, l, x, gy, sc, t + i, S.night);
@@ -231,17 +231,19 @@ export function drawCamp(){
     }
     hits.push({id, x0:x - W/n/2, x1:x + W/n/2, y0:gy - 70*sc, y1:gy + 20});
   });
-  // 主人公とたき火（手前）
-  const hx = W*0.5 - 16, hy = H*0.94;
-  const fxX = W*0.5 + 22;
-  c.fillStyle = 'rgba(0,0,0,.2)'; c.beginPath(); c.ellipse(hx, hy + 1, 10, 3, 0, 0, Math.PI*2); c.fill();
-  for (const a of [-0.5, 0.5]){ c.save(); c.translate(fxX, hy); c.rotate(a); rr(c, -9, -2, 18, 4, 2, '#6a4a2a'); c.restore(); }
+  // 主人公とたき火（手前）。建物と同じ割合で大きくする
+  const hs = sc/0.95, hx = W*0.5 - 16*hs, hy = H*0.94;
+  c.save(); c.translate(W*0.5, hy); c.scale(hs, hs);
+  const fxX = 22, x0 = -16;
+  c.fillStyle = 'rgba(0,0,0,.2)'; c.beginPath(); c.ellipse(x0, 1, 10, 3, 0, 0, Math.PI*2); c.fill();
+  for (const a of [-0.5, 0.5]){ c.save(); c.translate(fxX, 0); c.rotate(a); rr(c, -9, -2, 18, 4, 2, '#6a4a2a'); c.restore(); }
   const fl = 0.75 + 0.25*Math.sin(t*11) + 0.1*Math.sin(t*17);
-  c.globalAlpha = 0.35; circ(c, fxX, hy - 6, 16*fl, '#ff9a3a'); c.globalAlpha = 1;
-  tri(c, fxX - 6, hy, fxX, hy - 15*fl, fxX + 6, hy, '#ff7a2a');
-  tri(c, fxX - 3, hy, fxX, hy - 9*fl, fxX + 3, hy, '#ffd36b');
-  c.save(); c.translate(hx, hy); c.scale(1.2, 1.2); drawStandingHero(c, 0, 0, t); c.restore();
-  hits.push({id:'hero', x0:hx - 20, x1:hx + 20, y0:hy - 54, y1:hy + 4});
+  c.globalAlpha = 0.35; circ(c, fxX, -6, 16*fl, '#ff9a3a'); c.globalAlpha = 1;
+  tri(c, fxX - 6, 0, fxX, -15*fl, fxX + 6, 0, '#ff7a2a');
+  tri(c, fxX - 3, 0, fxX, -9*fl, fxX + 3, 0, '#ffd36b');
+  c.translate(x0, 0); c.scale(1.2, 1.2); drawStandingHero(c, 0, 0, t);
+  c.restore();
+  hits.push({id:'hero', x0:hx - 20*hs, x1:hx + 20*hs, y0:hy - 54*hs, y1:hy + 4});
   // 強化したときのきらめき
   if (fx){
     const i = FAC_IDS.indexOf(fx.id), x = W*(i + 0.5)/n, a = Math.min(1, fx.t);

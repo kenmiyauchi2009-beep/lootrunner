@@ -41,8 +41,8 @@
       <div class="camptag" id="campTag"></div>
       <div class="camppow"><small>戦力</small><b id="campPow"></b></div>
     </div>
-    <button class="goal" id="goal"></button>
     <button class="primary go" id="goBtn">出撃する<small id="goSub"></small></button>
+    <button class="goal" id="goal"></button>
     <div class="hub">
       <button id="dailyBtn"><i data-ic="daily"></i><b>日替わり</b><small id="dailySub"></small></button>
       <button id="facBtn"><i data-ic="home"></i><b>施設</b><small id="facSub"></small></button>
@@ -70,36 +70,33 @@
   <div class="card">
     <h2><span id="bInvTitle">所持品</span><button class="small" id="expandBtn">枠を増やす</button></h2>
     <div class="mats" id="bMats" aria-label="素材"></div>
-    <p class="matnote">素材は装備を分解すると手に入る（コモン→欠片、アンコモン→結晶、レア→宝玉、エピック→秘石、レジェンド→星核）。鍛冶と施設の強化に使う。</p>
-    <div class="invtools">
+    <div class="invtools three">
       <select id="fSlot" aria-label="部位で絞り込み">
-        <option value="all">部位：すべて</option>
+        <option value="all">部位：全部</option>
         <option value="weapon">武器</option>
         <option value="head">頭</option>
         <option value="body">胴</option>
         <option value="charm">装飾</option>
       </select>
       <select id="fRar" aria-label="レア度で絞り込み">
-        <option value="0">レア度：すべて</option>
-        <option value="1">アンコモン以上</option>
-        <option value="2">レア以上</option>
-        <option value="3">エピック以上</option>
+        <option value="0">レア度：全部</option>
+        <option value="1">アンコモン↑</option>
+        <option value="2">レア↑</option>
+        <option value="3">エピック↑</option>
         <option value="4">レジェンド</option>
       </select>
-    </div>
-    <div class="invtools">
       <select id="sortSel" aria-label="並び替え">
-        <option value="power">並び：戦力が上がる順</option>
-        <option value="rarity">並び：レア度順</option>
-        <option value="ilvl">並び：アイテムLv順</option>
-        <option value="slot">並び：部位順</option>
-        <option value="new">並び：新しい順</option>
+        <option value="power">戦力が上がる順</option>
+        <option value="rarity">レア度順</option>
+        <option value="ilvl">アイテムLv順</option>
+        <option value="slot">部位順</option>
+        <option value="new">新しい順</option>
       </select>
-      <button class="small" id="bulkBtn">まとめて分解</button>
     </div>
     <div class="invtools">
-      <label class="autolbl" for="autoSel">拾ったときに自動分解</label>
-      <select id="autoSel">
+      <button class="small" id="bulkBtn">まとめて分解</button>
+      <label class="autolbl" for="autoSel">自動分解</label>
+      <select id="autoSel" aria-label="拾ったときに自動分解">
         <option value="-1">しない</option>
         <option value="0">コモン</option>
         <option value="1">アンコモン以下</option>

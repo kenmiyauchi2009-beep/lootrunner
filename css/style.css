@@ -134,10 +134,11 @@ button.danger{background:transparent;border-color:var(--bad);color:var(--bad);fo
 /* ---------- フェーズ3：装備・鍛冶・図鑑 ---------- */
 .card h2 .small{min-height:30px}
 .mats{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
-.mat{background:var(--panel2);border-radius:8px;padding:3px 8px 3px 5px;font-size:11.5px;color:var(--muted);display:inline-flex;align-items:center;gap:3px}
+.mats{flex-wrap:nowrap}
+.mat{flex:1;min-width:0;min-height:32px;background:var(--panel2);border:0;border-radius:8px;padding:0 4px;font-size:12px;color:var(--muted);display:inline-flex;align-items:center;justify-content:center;gap:3px}
 .mat .svgi{width:16px;height:16px;color:var(--rc)}
 .matnote{color:var(--muted);font-size:11px;line-height:1.5;margin:-2px 0 10px}
-.mat b{color:var(--text);margin-left:4px;font-variant-numeric:tabular-nums}
+.mat b{color:var(--text);font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis}
 .autolbl{flex:1;color:var(--muted);font-size:12px;align-self:center}
 .tag.set{background:var(--sc);color:#1a1a1a}
 .setline{font-size:12px;padding:6px 8px;border-radius:8px;background:var(--panel2);margin-top:6px;border-left:3px solid var(--sc)}
@@ -242,15 +243,16 @@ table.rec td:last-child{text-align:right;font-variant-numeric:tabular-nums}
 .camppow{position:absolute;right:8px;top:8px;background:rgba(0,0,0,.5);border-radius:8px;padding:2px 8px;text-align:right;pointer-events:none;line-height:1.15}
 .camppow small{display:block;color:#cfe;font-size:9.5px}
 .camppow b{color:var(--accent);font-size:16px;font-variant-numeric:tabular-nums}
-.goal{width:100%;display:flex;align-items:center;gap:10px;text-align:left;padding:10px 12px;margin-bottom:10px;min-height:62px;
-  border:1px solid var(--accent);background:linear-gradient(90deg,rgba(255,181,71,.16),var(--panel2) 70%);border-radius:12px}
-.gic{flex:none;width:40px;height:40px;border-radius:10px;background:rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center}
-.gic .svgi{width:26px;height:26px}
-.gtx{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.35}
-.gtx small{font-size:10.5px;color:var(--accent);font-weight:800;letter-spacing:.06em}
-.gtx b{font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.gtx em{font-style:normal;font-size:11.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-.gch{flex:none;font-size:24px;color:var(--accent);line-height:1}
+.goal{width:100%;display:flex;align-items:center;gap:10px;text-align:left;padding:6px 10px;margin-bottom:10px;min-height:52px;
+  border:1px solid var(--line);border-left:3px solid var(--accent);background:var(--panel);border-radius:10px}
+.goal.warn{border-left-color:#ff9a7a}
+.gic{flex:none;width:30px;height:30px;border-radius:8px;background:rgba(0,0,0,.25);display:flex;align-items:center;justify-content:center}
+.gic .svgi{width:20px;height:20px}
+.gtx{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.3}
+.gtx small{font-size:10px;color:var(--muted);font-weight:700;letter-spacing:.04em}
+.gtx b{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gtx em{font-style:normal;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gch{flex:none;font-size:20px;color:var(--muted);line-height:1}
 .mchip,.gchip{display:inline-flex;align-items:center;gap:2px;font-size:11.5px;font-weight:700;padding:1px 6px 1px 3px;border-radius:6px;background:rgba(0,0,0,.28);margin:1px 3px 1px 0;white-space:nowrap;color:var(--text)}
 .gchip{color:var(--accent);padding-left:6px}
 .mchip .svgi{width:14px;height:14px;color:var(--mc)}
@@ -314,3 +316,36 @@ body.left .runbar{flex-direction:row-reverse}
 .tgl small{display:block;color:var(--muted);font-size:11.5px;line-height:1.4}
 .sw{min-width:64px;min-height:36px;font-weight:800;color:var(--muted)}
 .sw.on{background:var(--good);border-color:var(--good);color:#0d2412}
+
+/* スキルの絵（レベルアップのカード）：攻撃は丸、強化は四角 */
+.lvic{border-radius:50%}
+.lvic.sq{border-radius:10px}
+.lvic .svgi{width:24px;height:24px}
+.lvcard.evo .lvic{background:var(--c);color:#1a1a1a}
+.achgot{color:#ffe9a8;line-height:1.5}
+.invtools.three select{font-size:12px;padding:0 4px}
+.invtools .autolbl{flex:none}
+.invtools #bulkBtn{flex:1}
+.invtools #autoSel{flex:1.2}
+
+/* 縦持ち：村の絵を大きく */
+#campCv{height:clamp(210px,calc(100vh - 440px - env(safe-area-inset-top) - env(safe-area-inset-bottom)),110vw)}
+
+/* 横持ち（高さが低い）：村の絵を左、目標・出撃・ボタンを右に並べ、1画面に収める */
+@media (orientation:landscape) and (max-height:560px){
+  #base{max-width:960px;padding-top:calc(env(safe-area-inset-top) + 8px);padding-bottom:calc(env(safe-area-inset-bottom) + 64px)}
+  .top{margin-bottom:6px}
+  #tabHome:not(.hidden){display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);grid-template-rows:auto auto 1fr;column-gap:12px;align-items:start}
+  #tabHome .camp{grid-row:1 / span 3;margin-bottom:0}
+  #campCv{height:calc(100vh - 140px - env(safe-area-inset-top) - env(safe-area-inset-bottom));min-height:170px;max-height:none}
+  #tabHome .go{min-height:52px;margin-bottom:8px}
+  #tabHome .goal{margin-bottom:8px}
+  #tabHome .hub{margin:0}
+  .tabbar{padding-top:3px;padding-bottom:calc(env(safe-area-inset-bottom) + 3px)}
+  .tabbar button{min-height:44px;flex-direction:row;gap:6px}
+  .tabbar .badge{left:auto;right:calc(50% - 46px)}
+}
+
+/* 横持ちの冒険：拾った装備の知らせに暗い下地をつけて読みやすく */
+#feed.land div{display:table;max-width:100%;background:rgba(8,12,16,.78);border-radius:6px;padding:1px 7px;margin-bottom:2px;text-shadow:none}
+#feed.land span[style*="muted"]{color:#b9c7cc!important}

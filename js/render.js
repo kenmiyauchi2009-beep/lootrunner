@@ -2,6 +2,7 @@
 import { fmt } from './util.js';
 import { RAR, DROP_FX, ELITE_MODS, BOSSES, ZONES } from './data.js';
 import { drawCape, drawHelmet, drawTrim } from './hero.js';
+import { drawSkillIcon } from './skillart.js';
 import { SAVE } from './save.js';
 import { GY, PX, R, ctx, VW, SCALE, DPR, OY, VTOP, VBOT, zone, zoneIdx, elv, BOSS_LIMIT, ORB, PILLAR, VENT, ventState } from './run.js';
 import { ACTIVES, PASSIVES } from './skills.js';
@@ -730,17 +731,18 @@ function drawHUD(H){
   rr(0, 0, VW * Math.min(1, S.xp / S.need), 4, 0, '#6fd3ff');
   ctx.textAlign = 'left'; ctx.font = 'bold 9px -apple-system, sans-serif';
   outlined(`Lv ${S.lv}`, 10, 34, '#9fe6ff');
-  // 持っているスキル
+  // 持っているスキル（絵のアイコン。攻撃は丸い枠、強化は四角い枠。進化は塗りつぶし）
   let ix = 10;
-  const icon = (ic, c, lv, evo) => {
-    rr(ix, 41, 13, 13, 3, evo ? c : 'rgba(0,0,0,.45)');
-    ctx.fillStyle = evo ? '#1a1a1a' : c; ctx.font = 'bold 8px -apple-system, sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText(ic, ix + 6.5, 50.5);
-    if (!evo){ ctx.fillStyle = '#fff'; ctx.font = 'bold 6px -apple-system, sans-serif'; ctx.fillText(lv, ix + 11, 54); }
-    ix += 15;
+  const icon = (id, c, lv, evo, round) => {
+    if (round){ ctx.fillStyle = evo ? c : 'rgba(0,0,0,.5)'; ctx.beginPath(); ctx.arc(ix + 8, 49, 8, 0, Math.PI*2); ctx.fill(); }
+    else rr(ix, 41, 16, 16, 3, 'rgba(0,0,0,.5)');
+    if (!evo){ ctx.strokeStyle = c; ctx.globalAlpha = 0.55; ctx.lineWidth = 1; ctx.beginPath(); if (round) ctx.arc(ix + 8, 49, 7.5, 0, Math.PI*2); else ctx.roundRect(ix + 0.5, 41.5, 15, 15, 3); ctx.stroke(); ctx.globalAlpha = 1; }
+    drawSkillIcon(ctx, id, ix + 2.5, 43.5, 11, evo ? '#1a1a1a' : c);
+    if (!evo){ ctx.textAlign = 'center'; ctx.font = 'bold 7px -apple-system, sans-serif'; ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(0,0,0,.8)'; outlined(String(lv), ix + 14, 58, '#fff'); }
+    ix += 18;
   };
-  for (const [id, lv] of Object.entries(S.act)) icon(ACTIVES[id].ic, ACTIVES[id].c, lv, S.evo[id]);
-  for (const [id, lv] of Object.entries(S.pas)) icon(PASSIVES[id].ic, PASSIVES[id].c, lv, false);
+  for (const [id, lv] of Object.entries(S.act)) icon(id, ACTIVES[id].c, lv, S.evo[id], true);
+  for (const [id, lv] of Object.entries(S.pas)) icon(id, PASSIVES[id].c, lv, false, false);
   if (R.zoneCard) drawZoneCard(R.zoneCard);
   if (R.banner.t > 0){
     ctx.globalAlpha = Math.min(1, R.banner.t*2);

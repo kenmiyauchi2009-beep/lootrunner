@@ -7,6 +7,7 @@
 import { $ } from './util.js';
 import { SAVE } from './save.js';
 import { R, PX, GY, VW, VTOP, hit, burst, shake, ecenter, resumeClock, foeHp } from './run.js';
+import { skillSvg } from './skillart.js';
 import { dialog, closeDialog } from './ui.js';
 import { sfx } from './audio.js';
 import { trainPerks } from './meta.js';
@@ -448,9 +449,10 @@ function card(o, i){
   } else if (o.k === 'evo'){
     const A = ACTIVES[o.id];
     ic = A.ic; c = A.c; name = `${A.n} → ${A.evo.n}`; badge = '進化'; desc = A.evo.desc;
-  } else if (o.k === 'heal'){ ic = '癒'; c = '#5fd17a'; name = '回復'; badge = ''; desc = 'HPを30%回復する'; }
-  else { ic = '金'; c = '#ffd36b'; name = 'ゴールド'; badge = ''; desc = `${goldBonus()}G を手に入れる`; }
-  return `<button class="lvcard ${cls}" data-i="${i}" style="--c:${c}"><span class="lvic">${ic}</span>
+  } else if (o.k === 'heal'){ c = '#5fd17a'; name = '回復'; badge = ''; desc = 'HPを30%回復する'; }
+  else { c = '#ffd36b'; name = 'ゴールド'; badge = ''; desc = `${goldBonus()}G を手に入れる`; }
+  const art = o.k === 'heal' ? 'heal' : o.k === 'gold' || !o.id ? 'gold' : o.id;
+  return `<button class="lvcard ${cls}" data-i="${i}" style="--c:${c}"><span class="lvic ${o.k === 'pas' ? 'sq' : ''}">${skillSvg(art)}</span>
     <span class="lvt"><b>${name}</b>${badge ? `<em>${badge}</em>` : ''}<small>${desc}</small></span></button>`;
 }
 const goldBonus = () => 20 * R.sk.lv;

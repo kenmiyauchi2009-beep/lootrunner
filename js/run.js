@@ -8,7 +8,7 @@ import { renderBase } from './base.js';
 import { draw } from './render.js';
 import { sfx, unlockAudio, isMuted, setMuted, playBgm, duckBgm, pauseBgm } from './audio.js';
 import { initSkills, updateSkills, onLand, dropGem, openLevelUp, skillSummary, XP, catchUp, absorbHit, applyPassives } from './skills.js';
-import { dailyPlan, seeded, recordRun, rewardText, DAILY_MODS } from './meta.js';
+import { dailyPlan, seeded, recordRun, rewardText, claimText, claimShort, DAILY_MODS } from './meta.js';
 import { hideTitle } from './title.js';
 
 export const VH = 300, GY = 255, PX = 70;
@@ -39,9 +39,10 @@ export function sizeCanvas(){
     Object.assign(feed.style, {top:Math.round((GY + OY + 18) * SCALE) + 'px', left:'16px', right:'16px', bottom:'4px'});
     feedMax = Math.max(3, Math.floor(((VBOT - GY - 18) * SCALE - 4) / 24));
   } else {
-    Object.assign(feed.style, {top:Math.round((60 - VTOP) * SCALE) + 'px', left:Math.round(10 * SCALE) + 'px', right:'50%', bottom:'auto'});
+    Object.assign(feed.style, {top:Math.round((64 - VTOP) * SCALE) + 'px', left:Math.round(10 * SCALE) + 'px', right:'50%', bottom:'auto'});
     feedMax = 3;
   }
+  feed.classList.toggle('land', !portrait);
   const f = $('feed'); while (f.children.length > feedMax) f.lastChild.remove();
 }
 window.addEventListener('resize', () => { if (R) sizeCanvas(); });
@@ -847,7 +848,9 @@ function onKill(e){
     playBgm('zone' + (R.zoneOrder ? R.zoneOrder[zoneIdx()] : zoneIdx()), 1.5);
     saveGame();
   } else {
-    R.hitstop = Math.max(R.hitstop, 0.035);
+    // 倒したときの小さなヒットストップは0.35秒に1回まで。
+    // ブーメランや回転刃は1フレームに1体ずつ倒すので、毎回止めると群れの中でずっとカクつく（重く感じる）
+    if (!(R.t - (R.stopAt ?? -9) < 0.35)){ R.hitstop = Math.max(R.hitstop, 0.035); R.stopAt = R.t; }
     sfx('kill');
     if (e.elite){ R.eliteKills++; drop(e, e.lv + 2, 2); R.banner = {t:1.4, txt:'エリート撃破！', c:'#ffd36b'}; }
     else if (e.type !== 'chest' && Math.random() < (e.type==='mini' ? 0.005 : 0.09) * (1 + R.st.drop/100) * (R.cpRun ? CP_RULE.dropMul : 1) * R.lootMul * (R.sk.dropMul || 1)) drop(e, e.lv, 0);
@@ -870,7 +873,7 @@ function feedLine(html, cls){
   $('feed').prepend(div);
   while ($('feed').children.length > feedMax) $('feed').lastChild.remove();
 }
-function drop(e, ilvl, minR){
+export function drop(e, ilvl, minR){
   const it = genItem(ilvl, minR, R.st.drop/100 + R.st.rarityB, {tc:R.tc});
   noteFound(it);
   const F = DROP_FX[it.r];
@@ -883,10 +886,32 @@ function drop(e, ilvl, minR){
   const d = powerWith(it) - computeStats(SAVE.equip).power;
   // 自動分解：設定したレア度以下で、セット・レジェンドでなく、戦力も上がらないもの
   const auto = it.r <= SAVE.autoSalv && !it.set && !it.uniq && d <= 0.5;
-  if (auto || SAVE.inv.length >= SAVE.invMax){
+  // 所持品がいっぱいのとき：残したい装備（レジェンド・セット・戦力が上がる・エピック）なら、
+  // 持っている中で一番弱いもの（保護・セット・レジェンド以外で、拾ったものよりレア度が上でなく、戦力も上がらない）を分解して空ける。
+  // 空けられなければ、レジェンド・セット・戦力が上がるものだけは枠を10個までこえて持つ（レジェンドは必ず残す）。それ以外は今まで通り分解
+  const want = it.set || it.uniq || it.r >= 3 || d > 0.5, must = it.set || it.uniq || d > 0.5;
+  const full = SAVE.inv.length >= SAVE.invMax;
+  let made = '', keep = !full;
+  if (full && want && !auto){
+    const power = computeStats(SAVE.equip).power;
+    const cand = SAVE.inv.filter(x => !x.lock && !x.set && !x.uniq && x.r <= it.r && (x.r < it.r || !must ? x.r <= 3 : true))
+      .map(x => [x, powerWith(x) - power]).filter(([, g]) => g <= 0.5)
+      .sort((a, b) => a[0].r - b[0].r || a[1] - b[1] || a[0].ilvl - b[0].ilvl);
+    const v = cand.length && (must || cand[0][0].r < it.r || cand[0][0].ilvl < it.ilvl) ? cand[0][0] : null;
+    if (v){
+      const r = salvage(v);
+      SAVE.inv.splice(SAVE.inv.indexOf(v), 1); R.gold += r.g; R.salv = (R.salv || 0) + 1;
+      made = `<span style="color:var(--muted)">所持品がいっぱい：${v.name} を分解して空けた</span>`; keep = true;
+    } else if (it.uniq || (must && SAVE.inv.length < SAVE.invMax + 10)){
+      made = '<span style="color:#ff9a7a">所持品が枠をこえた：拠点で整理しよう</span>'; keep = true;
+    }
+  }
+  if (full && !R.fullWarn){ R.fullWarn = true; R.banner = {t:2, txt:'所持品がいっぱい！', c:'#ff9a7a'}; }
+  if (auto || !keep){
     const r = salvage(it); R.gold += r.g; R.salv = (R.salv || 0) + 1;
     line = `<span style="color:var(--muted)">${auto ? '自動分解' : '所持品がいっぱい：分解'}：${it.name} +${r.g}G・${MATS[r.m.r]}×${r.m.n}</span>`;
   } else {
+    if (made) feedLine(made);
     SAVE.inv.push(it); R.loot.push(it);
     up = d > 0.5;
     line = `<b style="color:${rc}">${RAR[it.r].n}</b> <span style="color:${rc}">${it.name}</span> <small>Lv${it.ilvl}</small>${up ? ` <b class="upbadge">▲ 戦力+${fmt(d)}</b>` : ''}`;
@@ -969,19 +994,20 @@ function endRun(retreat, reason){
   // 日替わりの節目の報酬・新しく達成した実績
   const extra = [
     ...rec.daily.map(x => `<div>日替わり ${x.at}m の報酬：<b class="gold">${rewardText({g:x.g, m:x.m})}</b></div>`),
-    ...rec.ach.map(a => `<div>実績「<b style="color:var(--accent)">${a.n}</b>」達成！（拠点の「実績」で受け取る）</div>`),
+    rec.claim.list.length ? `<div class="achgot">${rec.claim.list.length > 2 ? claimShort(rec.claim) : claimText(rec.claim)}</div>` : '',
+    SAVE.inv.length >= SAVE.invMax ? `<div style="color:#ff9a7a">所持品がいっぱい（${SAVE.inv.length}/${SAVE.invMax}）。拠点の「所持品」で整理しよう</div>` : '',
   ].join('');
   const html = `
     <h2>${title}</h2>
     ${note ? `<p class="sksum">${note}</p>` : ''}
-    ${extra ? `<div class="sksum extra">${extra}</div>` : ''}
     <div class="res">
       <div class="stat"><small>到達</small><b>${fmt(R.dist)}m</b></div>
       <div class="stat"><small>撃破</small><b>${R.kills}</b></div>
       <div class="stat"><small>ゴールド</small><b>${fmt(R.gold)}</b></div>
     </div>
-    <p class="sksum">${skillSummary()}</p>
     <div class="loot">${lootHTML}</div>
+    ${extra ? `<div class="sksum extra">${extra}</div>` : ''}
+    <p class="sksum">${skillSummary()}</p>
     <div class="btns"><button class="primary" id="dBase">拠点へ戻る</button></div>`;
   // 結果の画面は少し余韻を見せてから出す（中身はいま作っておく。その間に拠点へ戻っていたら出さない）
   const run = R;

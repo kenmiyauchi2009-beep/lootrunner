@@ -160,6 +160,26 @@ export function claimAch(id){
   return true;
 }
 
+// 達成した実績の報酬をまとめて受け取る（達成したらその場で自動で受け取る）
+// 戻り値：{list：受け取った実績, g：ゴールド, m：素材の数[5], capes：新しく着られるマント}
+export function claimAll(){
+  const before = achGot(), list = achClaimable(), m = [0, 0, 0, 0, 0];
+  let g = 0;
+  for (const a of list) if (claimAch(a.id)){ g += a.r.g || 0; if (a.r.m) m[a.r.m[0]] += a.r.m[1]; }
+  return {list, g, m, capes:CAPES.filter(c => c.need > before && c.need <= achGot())};
+}
+// トースト用のもっと短い文
+export function claimShort(c){
+  if (!c.list.length) return '';
+  const last = c.list[c.list.length - 1];
+  return `実績${c.list.length > 1 ? ` ${c.list.length}件` : `「${last.n}」`}達成！ ${c.g ? c.g.toLocaleString('ja-JP') + 'G' : ''}${c.m.some(Boolean) ? '＋素材' : ''}・称号〈${last.t}〉${c.capes.length ? `・マント「${c.capes[c.capes.length - 1].n}」` : ''}`;
+}
+// 受け取った報酬の文（結果の画面用）
+export function claimText(c){
+  if (!c.list.length) return '';
+  return `実績「${c.list.map(a => a.n).join('」「')}」達成：${c.g ? c.g.toLocaleString('ja-JP') + 'G' : ''}${c.m.map((n, i) => n ? `＋${MATS[i]}×${n}` : '').join('')}・称号〈${c.list.map(a => a.t).join('〉〈')}〉${c.capes.length ? `・マント「${c.capes.map(x => x.n).join('」「')}」` : ''}`;
+}
+
 // ---------- 日替わりダンジョン ----------
 export const dateKey = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 export function hashStr(s){ let h = 2166136261; for (let i = 0; i < s.length; i++){ h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
@@ -238,7 +258,9 @@ export function recordRun(R){
     const keys = Object.keys(H).sort();
     while (keys.length > HIST_MAX) delete H[keys.shift()];
   }
-  out.ach = checkAch();
+  checkAch();
+  out.claim = claimAll();
+  out.ach = out.claim.list;
   saveGame();
   return out;
 }

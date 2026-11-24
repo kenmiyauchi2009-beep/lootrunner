@@ -3,7 +3,7 @@ import { $ } from './util.js';
 import { genItem, computeStats, powerWith, equipKeyFor, smithUpgrade, smithReroll, smithValue, smithLock, salvage, upgradeCost, valueCost, affGrade } from './items.js';
 import { SAVE, SAVE_VERSION, loadGame, newSave, saveGame, migrate, exportText, parseImport, applySave, resetSave } from './save.js';
 import { renderBase, openItem, equipItem, openCodex } from './base.js';
-import { R, startRun, toBase, step, jump, releaseJump, JUMP, BAT_LANE, ROLL_SPEED, mkEnemy, EB, GHOST, ghostY, ORB, PILLAR, VENT, ventState, BOSS_TELE, CP_CATCHUP, elv } from './run.js';
+import { R, drop, startRun, toBase, step, jump, releaseJump, JUMP, BAT_LANE, ROLL_SPEED, mkEnemy, EB, GHOST, ghostY, ORB, PILLAR, VENT, ventState, BOSS_TELE, CP_CATCHUP, elv } from './run.js';
 import * as DATA from './data.js';
 import { draw } from './render.js';
 import { toast } from './ui.js';
@@ -17,7 +17,7 @@ import * as META from './meta.js';
 import { openFacilities, openAchievements, openRecords, openDaily, openLook, nextGoal } from './hub.js';
 
 // 版の番号（sw.js の VERSION と同じにする）
-export const APP_VERSION = '1.7.0';
+export const APP_VERSION = '1.7.1';
 const loaded = loadGame();
 META.initLook();
 applySettings();
@@ -36,7 +36,7 @@ window.addEventListener('pagehide', saveGame);
 
 setupOffline();
 
-window.T = { get SAVE(){ return SAVE; }, get R(){ return R; }, startRun, toBase, genItem, computeStats, renderBase, step, draw, newSave, saveGame, openItem, jump, releaseJump, JUMP, BAT_LANE, ROLL_SPEED, pickSkill, ACTIVES, PASSIVES, equipItem,
+window.T = { get SAVE(){ return SAVE; }, get R(){ return R; }, drop, startRun, toBase, genItem, computeStats, renderBase, step, draw, newSave, saveGame, openItem, jump, releaseJump, JUMP, BAT_LANE, ROLL_SPEED, pickSkill, ACTIVES, PASSIVES, equipItem,
   SAVE_VERSION, migrate, exportText, parseImport, applySave, resetSave, openSettings,
   powerWith, equipKeyFor, smithUpgrade, smithReroll, smithValue, smithLock, salvage, upgradeCost, valueCost, affGrade, openCodex,
   mkEnemy, EB, GHOST, ghostY, ORB, PILLAR, VENT, ventState, BOSS_TELE, CP_CATCHUP, elv, DATA,

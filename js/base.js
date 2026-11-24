@@ -12,7 +12,7 @@ import { ACTIVES, PASSIVES, unlocked } from './skills.js';
 import { TRAIN } from './meta.js';
 import { icon, itemIcon, matIcon, matChip, goldChip, costHTML } from './icons.js';
 import { setupCamp, campHit, kickCamp, stopCamp } from './camp.js';
-import { titleText } from './meta.js';
+import { titleText, checkAch, claimAll, claimShort } from './meta.js';
 import { openFacilities, openLook } from './hub.js';
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]));
@@ -34,6 +34,10 @@ function diffHTML(d){
 
 // ---------- 拠点の表示 ----------
 export function renderBase(){
+  // 拠点で達成した実績（施設の強化など）もその場で受け取る
+  checkAch();
+  const got = claimAll();
+  if (got.list.length) toast(claimShort(got));
   const st = computeStats(SAVE.equip);
   $('bGold').textContent = fmt(SAVE.gold) + ' G';
   const P = SAVE.prog;
@@ -51,7 +55,8 @@ export function renderBase(){
       : `<div class="item" style="--rc:#444"><div class="ico">${itemIcon(k==='weapon' ? 'sword' : slotOfKey(k))}</div><div class="nm"><b style="color:var(--muted)">${SLOT_N[k]}：なし</b><small>冒険で拾える</small></div></div>`;
   }).join('');
   $('bSets').innerHTML = Object.entries(st.sets).map(([id, n]) => setLineHTML(id, n)).join('');
-  $('bMats').innerHTML = MATS.map((m, i) => `<span class="mat" style="--rc:${RAR[i].c}">${matIcon(i)}${m}<b>${fmt(SAVE.mats[i])}</b></span>`).join('');
+  // 素材：絵と数だけを1行に。タップで説明
+  $('bMats').innerHTML = MATS.map((m, i) => `<button class="mat" style="--rc:${RAR[i].c}" aria-label="${m} ${SAVE.mats[i]}個" data-mat="${i}">${matIcon(i)}<b>${fmt(SAVE.mats[i])}</b></button>`).join('');
   $('bInvTitle').textContent = `所持品 ${SAVE.inv.length}/${SAVE.invMax}`;
   $('expandBtn').disabled = SAVE.invMax >= INV_LIMIT;
   $('sortSel').value = SAVE.sort;
@@ -79,12 +84,25 @@ export function renderBase(){
   const tt = titleText();
   $('campTag').innerHTML = tt ? `<small>称号</small>〈${esc(tt)}〉` : '';
   $('campTag').classList.toggle('hidden', !tt);
-  const nNew = SAVE.inv.filter(i => i.isNew).length, better = SAVE.inv.some(i => gain.get(i) > 0.5 || (!gain.has(i) && powerWith(i) - st.power > 0.5));
-  $('bagBadge').textContent = nNew ? String(nNew) : '';
+  // 所持品タブの数字：まだ所持品タブを開いていないあいだに拾った装備の数
+  const nNew = SAVE.inv.filter(i => i.isNew && i.id > bagSeen()).length, better = SAVE.inv.some(i => gain.get(i) > 0.5 || (!gain.has(i) && powerWith(i) - st.power > 0.5));
+  $('bagBadge').textContent = nNew && tab !== 'tabBag' ? String(nNew) : '';
+  if (tab === 'tabBag' && !$('base').classList.contains('hidden')) markBagSeen();
   $('gearBadge').textContent = better ? '▲' : '';
   renderHub();
   kickCamp();
 }
+
+// 所持品タブを最後に開いたときの装備の番号（端末にだけ覚える。消えても数字が出るだけ）
+const BAG_KEY = 'lootrunner-bagseen';
+function bagSeen(){ try { return Number(localStorage.getItem(BAG_KEY)) || 0; } catch(e){ return 0; } }
+function markBagSeen(){ try { localStorage.setItem(BAG_KEY, String(SAVE.nextId - 1)); } catch(e){} $('bagBadge').textContent = ''; }
+$('bMats').addEventListener('click', ev => {
+  const b = ev.target.closest('[data-mat]');
+  if (!b) return;
+  const i = Number(b.dataset.mat);
+  toast(`${MATS[i]}：${RAR[i].n}の装備を分解すると手に入る。鍛冶と施設の強化に使う`);
+});
 
 // ---------- タブ（拠点・装備・所持品） ----------
 let tab = 'tabHome';
@@ -95,6 +113,7 @@ export function showTab(id){
   document.querySelectorAll('#tabbar [data-tab]').forEach(b => { const on = b.dataset.tab === id; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
   window.scrollTo(0, 0);
   if (id === 'tabHome') kickCamp(); else stopCamp();
+  if (id === 'tabBag') markBagSeen();
 }
 document.querySelectorAll('#tabbar [data-tab]').forEach(b => b.onclick = () => showTab(b.dataset.tab));
 document.querySelectorAll('[data-ic]').forEach(el => { el.outerHTML = icon(el.dataset.ic); });
