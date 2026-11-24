@@ -73,15 +73,24 @@ export function initSkills(){
   // 訓練所：最初のスキルを持って出る
   const s = SAVE.skill.start;
   if (T.startPick && s && ACTIVES[s] && unlocked(s)){ R.sk.act[s] = 1; R.sk.cd[s] = 0.3; }
+  // 装備の「持って出撃」・雷帝の冠：そのスキルを Lv+1 で持って出る（攻撃スキルは最大4つ・Lv5まで）
+  for (const [id, n] of Object.entries(R.st.skBoost || {})){
+    if (!ACTIVES[id]) continue;
+    if (!R.sk.act[id] && Object.keys(R.sk.act).length >= MAX_SLOTS) continue;
+    R.sk.act[id] = Math.min(5, (R.sk.act[id] || 0) + n); R.sk.cd[id] = 0.3;
+  }
 }
+// 進化できるLv（ふつうは5。レジェンドで4になる）
+export const evoLv = id => R && (R.st.uniq.has('seed') || (id === 'blade' && R.st.uniq.has('orbit'))) ? 4 : 5;
 function mods(){
-  const P = R.sk.pas;
-  return {haste:1 - 0.08*(P.haste||0), area:1 + 0.12*(P.area||0), multi:[0,1,1,2,2,3][P.multi||0], spring:P.spring||0,
+  const P = R.sk.pas, st = R.st;
+  // 装備の「スキルの速さ」「スキルの範囲」もここで掛ける
+  return {haste:(1 - 0.08*(P.haste||0)) / (1 + (st.skillCd||0)/100), area:(1 + 0.12*(P.area||0)) * (1 + (st.skillArea||0)/100), multi:[0,1,1,2,2,3][P.multi||0], spring:P.spring||0,
     blastR:1 + 0.12*(P.blast||0), blastD:1 + 0.08*(P.blast||0)};
 }
 // スキルの基本ダメージ。装備ではなく敵のレベルに合わせて伸びる（群れの敵を数発で倒せる強さ）
 export const SKILL_BASE = 8;
-export const skillDmg = () => SKILL_BASE * foeHp() * (1 + 0.12*(R.sk.pas.might||0));
+export const skillDmg = () => SKILL_BASE * foeHp() * (1 + 0.12*(R.sk.pas.might||0)) * (1 + (R.st.skillDmg||0)/100);   // 装備の「スキルのダメージ」
 // 強化スキルのうち、本体（装備側）に関わるもの：踏みつけ・受けるダメージ・ドロップ率
 export function applyPassives(){
   const P = R.sk.pas;
@@ -154,7 +163,7 @@ export function updateSkills(dt, scroll){
   // 回転刃
   S.blades.length = 0;
   if (A.blade){
-    const ev = S.evo.blade, n = (ev ? 6 : ACTIVES.blade.count[lvOf('blade')]) + M.multi;
+    const ev = S.evo.blade, n = (ev ? 6 : ACTIVES.blade.count[lvOf('blade')]) + M.multi + (R.st.uniq.has('orbit') ? 2 : 0);
     const r = (ev ? 54 : 38) * M.area, dmg = D * (ev ? 1.4 : ACTIVES.blade.dmg[lvOf('blade')]);
     S.ang += dt * (ev ? 5 : 4);
     const cx = PX, cy = p.y - 15;
@@ -257,7 +266,7 @@ const anyFoe = () => R.enemies.some(e => alive(e) && e.x < VW + 10);
 const FIRE = {
   bolt(D, M){
     const ev = R.sk.evo.bolt, L = lvOf('bolt');
-    const ts = targets((ev ? 5 : ACTIVES.bolt.count[L]) + M.multi);
+    const ts = targets((ev ? 5 : ACTIVES.bolt.count[L]) + M.multi + (R.st.uniq.has('thunderking') ? 1 : 0));
     if (!ts.length){ R.sk.cd.bolt = 0.2; return; }
     for (const e of ts){
       const [x, y] = ecenter(e);
@@ -272,7 +281,7 @@ const FIRE = {
     for (let i=0;i<n;i++){
       const tx = PX + 100 + i*90 + Math.random()*30;
       R.sk.flasks.push({sx:PX + 6, sy:R.p.y - 28, x:PX + 6, y:R.p.y - 28, tx, t:0.45, T:0.45,
-        w:(ev ? 140 : ACTIVES.fire.width[L]) * M.area, dur:ev ? 4 : 2.5, dmg:D*(ev ? 0.7 : ACTIVES.fire.dmg[L])});
+        w:(ev ? 140 : ACTIVES.fire.width[L]) * M.area, dur:ev ? 4 : 2.5, dmg:D*(ev ? 0.7 : ACTIVES.fire.dmg[L])*(R.st.uniq.has('pyreheart') ? 1.5 : 1)});
     }
   },
   missile(D, M){
@@ -319,7 +328,7 @@ const FIRE = {
   mine(D, M){
     const ev = R.sk.evo.mine, L = lvOf('mine');
     R.sk.mines.push({x:PX + 50 + Math.random()*90, t:6, arm:0.3, r:(ev ? 75 : ACTIVES.mine.radius[L])*M.area*M.blastR,
-      dmg:D*M.blastD*(ev ? 3.6 : ACTIVES.mine.dmg[L]), cluster:!!ev});
+      dmg:D*M.blastD*(ev ? 3.6 : ACTIVES.mine.dmg[L])*(R.st.uniq.has('pyreheart') ? 1.5 : 1), cluster:!!ev});
   },
   lance(D, M){
     const ev = R.sk.evo.lance, L = lvOf('lance');
@@ -389,7 +398,7 @@ function options(exclude = []){
   for (const id in ACTIVES){
     if (!offered(id) && !A[id]) continue;
     const ev = ACTIVES[id].evo;
-    if (A[id] === 5 && !S.evo[id] && P[ev.need]) out.push({k:'evo', id, w:100});
+    if (A[id] >= evoLv(id) && !S.evo[id] && P[ev.need]) out.push({k:'evo', id, w:100});
     else if (A[id] && A[id] < 5) out.push({k:'act', id, w:1.6});
     else if (!A[id] && nA < MAX_SLOTS) out.push({k:'act', id, w:1});
   }
@@ -440,7 +449,7 @@ function card(o, i){
   if (o.k === 'act'){
     const A = ACTIVES[o.id], cur = S.act[o.id] || 0;
     ({ic, c} = A); name = A.n + (A.util ? '<span class="util">補助</span>' : ''); badge = cur ? `Lv${cur}→${cur + 1}` : 'NEW';
-    desc = actText(o.id, cur + 1) + `<span class="evohint">${A.util ? '敵を倒す力は弱い。ボス戦で役立つ ・ ' : ''}進化：Lv5＋${PASSIVES[A.evo.need].n}${S.pas[A.evo.need] ? '（持っている）' : ''}</span>`;
+    desc = actText(o.id, cur + 1) + `<span class="evohint">${A.util ? '敵を倒す力は弱い。ボス戦で役立つ ・ ' : ''}進化：Lv${evoLv(o.id)}＋${PASSIVES[A.evo.need].n}${S.pas[A.evo.need] ? '（持っている）' : ''}</span>`;
   } else if (o.k === 'pas'){
     const P = PASSIVES[o.id], cur = S.pas[o.id] || 0;
     ({ic, c} = P); name = P.n; badge = cur ? `Lv${cur}→${cur + 1}` : 'NEW';

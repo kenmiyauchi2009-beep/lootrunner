@@ -737,7 +737,7 @@ export function hit(e, base, noProc, skill, sCrit){
   if (!alive(e)) return false;
   const st = R.st, U = x => st.uniq.has(x);
   const crit = !skill && Math.random() < st.critC;
-  const res = skill ? (SKILL_RES[e.type] ?? 1) : 1;
+  const res = skill ? (SKILL_RES[e.type] ?? 1) * (e.type === 'boss' && st.uniq.has('archmage') ? 2 : 1) : 1;   // 大魔導の宝珠：ボスに2倍効く
   if (res === 0) return false;
   let mul = 1;
   if (!skill){

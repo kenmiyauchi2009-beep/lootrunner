@@ -47,7 +47,7 @@ export function renderBase(){
   $('bPower').textContent = fmt(st.power);
   $('bStats').innerHTML = [
     ['DPS(目安)', fmt(st.dps)], ['ボス火力', fmt(st.bossDps)], ['最大HP', fmt(st.hp)],
-    ['被ダメ軽減', Math.round(st.defRed*100) + '%' + (st.dodgeC ? ` 回避${Math.round(st.dodgeC*100)}%` : '')], ['攻撃/秒', st.rate.toFixed(2)], ['会心', `${Math.round(st.crit)}% ×${st.critM.toFixed(2)}`],
+    ['被ダメ軽減', Math.round(st.defRed*100) + '%' + (st.dodgeC ? ` 回避${Math.round(st.dodgeC*100)}%` : '')], ['攻撃/秒', st.rate.toFixed(2)], ['会心', `${Math.round(st.crit)}% ×${st.critM.toFixed(2)}`], ...(st.skillF > 1.005 ? [['スキルの強さ', Math.round(st.skillF*100) + '%']] : []),
   ].map(([k,v]) => `<div class="stat"><small>${k}</small><b>${v}</b></div>`).join('');
   $('bEquip').innerHTML = EQUIP_SLOTS.map(k => {
     const it = SAVE.equip[k];
@@ -210,7 +210,9 @@ function compareHTML(it, key){
     ['回避', cur.dodgeC*100, nw.dodgeC*100, v => Math.round(v) + '%'],
     ['攻撃/秒', cur.rate, nw.rate, v => v.toFixed(2)],
     ['会心率', cur.crit, nw.crit, v => Math.round(v) + '%'],
-  ].filter(([n, a, b]) => n === '戦力' || Math.abs(a - b) > 1e-6 || a);
+    ['スキルの強さ', cur.skillF*100, nw.skillF*100, v => Math.round(v) + '%'],
+  ].filter(([n, a, b]) => n !== 'スキルの強さ' || Math.abs(a - b) > 1e-6 || a > 100.5)
+   .filter(([n, a, b]) => n === '戦力' || Math.abs(a - b) > 1e-6 || a);
   const td = (a, b, f) => { const d = b - a, cls = Math.abs(d) < 1e-6 ? 'same' : d > 0 ? 'up' : 'down';
     return `<td>${f(a)}</td><td>→ ${f(b)}</td><td class="${cls}">${Math.abs(d) < 1e-6 ? '' : (d > 0 ? '▲' : '▼')}</td>`; };
   const other = SAVE.equip[key];

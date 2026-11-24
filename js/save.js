@@ -1,5 +1,5 @@
 // セーブ（localStorage）。読み書きはすべて try/catch で囲む。
-import { RAR, WTYPES, AFFIX, uniqueOf, SETS, EQUIP_SLOTS, slotOfKey, INV_BASE, INV_LIMIT, DIFF_MAX, CLEAR_DIST, FAC_MAX } from './data.js';
+import { RAR, WTYPES, AFFIX, uniqueOf, SETS, EQUIP_SLOTS, slotOfKey, INV_BASE, INV_LIMIT, DIFF_MAX, CLEAR_DIST, FAC_MAX, SKILL_N } from './data.js';
 import { genItem, tierFromValue } from './items.js';
 import { toast } from './ui.js';
 
@@ -106,7 +106,7 @@ function validItem(it){
   if (!it || typeof it !== 'object' || !Number.isFinite(it.id) || !SLOTS.includes(it.slot) || !RAR[it.r]) return false;
   if (it.slot === 'weapon' ? !WTYPES[it.type] : it.type !== it.slot) return false;
   if (!Number.isFinite(it.ilvl) || !Number.isFinite(it.q)) return false;
-  it.aff = Array.isArray(it.aff) ? it.aff.filter(a => a && AFFIX[a.k] && Number.isFinite(a.v)) : [];
+  it.aff = Array.isArray(it.aff) ? it.aff.filter(a => a && AFFIX[a.k] && Number.isFinite(a.v) && (!AFFIX[a.k].skill || SKILL_N[a.s])) : [];
   if (it.tc !== 6 && it.tc !== 7) delete it.tc;
   for (const a of it.aff) if (!Number.isInteger(a.t) || a.t < 1 || a.t > (it.tc || 5)) a.t = tierFromValue(it, a);
   it.up = Number.isFinite(it.up) ? it.up : 0;

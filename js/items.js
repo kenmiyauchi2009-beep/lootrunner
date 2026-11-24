@@ -1,6 +1,6 @@
 // 装備ロジック（生成・付与効果と階級・セット・ステータス計算・鍛冶・分解）
 import { rnd, pick, pickW } from './util.js';
-import { WTYPES, BASE_NAMES, AFFIX, UNIQUES, uniqueOf, SETS, SET_CHANCE, EQUIP_SLOTS } from './data.js';
+import { WTYPES, BASE_NAMES, AFFIX, UNIQUES, uniqueOf, SETS, SET_CHANCE, EQUIP_SLOTS, SKILL_N, SKILL_LOCK } from './data.js';
 import { SAVE } from './save.js';
 import { smithDisc, salvGoldMul, salvMatPlus, dojoHp, dojoAtk, vaultGold } from './meta.js';
 
@@ -27,8 +27,11 @@ export function tierRange(it, k, t){
   const [lo, hi] = affRange(it, k);
   return [lo + (hi - lo)*(t - 1)/5, lo + (hi - lo)*t/5];
 }
+// 「持って出撃」のスキル：訓練所で解放したものから選ぶ
+export const startSkillPool = () => Object.keys(SKILL_N).filter(id => (SKILL_LOCK[id] || 0) <= ((SAVE.fac && SAVE.fac.train) || 0));
 export function rollAff(it, k, t = rollTier(it)){
   const A = AFFIX[k];
+  if (A.skill){ const pool = startSkillPool(); return {k, t:1, v:1, s:pick(pool.length ? pool : ['blade'])}; }
   if (A.int) return {k, t, v: A.min + Math.floor(Math.random()*(A.max - A.min + 1))};
   const [lo, hi] = tierRange(it, k, t);
   return {k, t, v: rnd(lo, hi)};
@@ -49,6 +52,7 @@ export const affVal = (it,a) => AFFIX[a.k].int ? a.v : a.v*(1 + 0.05*it.up);
 export function fmtNum(k, v){ const A = AFFIX[k]; return A.int ? String(v) : A.dec ? v.toFixed(A.dec) : String(Math.round(v)); }
 export function fmtAff(it, a){
   const A = AFFIX[a.k];
+  if (A.skill) return `「${SKILL_N[a.s] || '？'}」を持って出撃（Lv+${a.v}）`;
   return `${A.n} ${A.note ? '（' + A.note : '+'}${fmtNum(a.k, affVal(it,a))}${A.pct ? '%' : ''}${A.note ? '）' : ''}`;
 }
 export function affGrade(it, a){ const [lo,hi] = affRange(it,a.k); return hi===lo ? 1 : (a.v-lo)/(hi-lo); }
@@ -91,6 +95,7 @@ export function computeStats(eq){
   const s = {type:'sword', dmg:5, interval:0.6, range:110, targets:3, atk:0, aspd:0, crit:5, critdmg:50, rangeP:0,
     hp:100, def:0, regen:0, leech:0, gold:0, drop:0, burn:0, chain:0, multi:0, pierce:0,
     airAtk:0, lowHpAspd:0, bossDmg:0, killBolt:0, stompDmg:0, firstHit:0, thorns:0, dodge:0, xpGain:0, killHeal:0,
+    skillDmg:0, skillCd:0, skillArea:0, skStart:0, skBoost:{},
     invMul:1, rarityB:0, maxJumps:2, uniq:new Set(), sets:{}, setB:new Set()};
   const w = eq.weapon;
   if (w){
@@ -104,7 +109,10 @@ export function computeStats(eq){
     const b = baseStats(it);
     if (b.hp) s.hp += b.hp;
     if (b.def) s.def += b.def;
-    for (const a of it.aff) s[a.k] += affVal(it, a);
+    for (const a of it.aff){
+      if (AFFIX[a.k].skill){ if (a.s) s.skBoost[a.s] = (s.skBoost[a.s] || 0) + a.v; s.skStart += a.v; continue; }
+      s[a.k] += affVal(it, a);
+    }
     if (it.uniq) s.uniq.add(it.uniq);
     if (it.set) s.sets[it.set] = (s.sets[it.set] || 0) + 1;
   }
@@ -131,6 +139,8 @@ export function computeStats(eq){
   if (U('hawk')) s.crit += 15;
   if (U('thornmail')) s.thorns += 300;
   if (U('wing')) s.maxJumps = 3;
+  if (U('archmage')) s.skillDmg += 30;
+  if (U('thunderking')) s.skBoost.bolt = (s.skBoost.bolt || 0) + 1;
   // 道場・金庫（施設）
   s.hp *= dojoHp(); s.atk += dojoAtk(); s.gold += vaultGold();
 
@@ -153,7 +163,11 @@ export function computeStats(eq){
   s.bossDps = s.dps * (1 + s.bossDmg/100) * (U('hawk') ? 1 + s.critC*0.5 : 1);
   const surv = Math.sqrt(s.hp/100) * (1 + s.defRed) / (1 - s.dodgeC*0.8)
     * (1 + s.regen/20 + s.leech/20 + s.killHeal/20) * (U('revive') ? 1.2 : 1) * (1 + Math.min(0.15, s.thorns/3000)) * (s.invMul > 1 ? 1.1 : 1);
-  s.power = Math.sqrt(s.dps * s.bossDps) * surv;
+  // スキルに効く装備：出撃中のスキルがダメージのおよそ半分なので、その分を戦力に足す
+  const skillF = (1 + s.skillDmg/100) * (1 + s.skillCd/100) * (1 + s.skillArea/200) * (1 + 0.12*s.skStart + (U('thunderking') ? 0.12 : 0))
+    * (U('pyreheart') ? 1.1 : 1) * (U('orbit') ? 1.12 : 1) * (U('archmage') ? 1.15 : 1) * (U('seed') ? 1.15 : 1);
+  s.skillF = skillF;
+  s.power = Math.sqrt(s.dps * s.bossDps) * surv * (1 + (skillF - 1)*0.5);
   return s;
 }
 // 装飾は2枠。空いていればそこへ、埋まっていれば戦力が高くなる方と入れ替える

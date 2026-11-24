@@ -53,7 +53,16 @@ export const AFFIX = {
   dodge:    {n:'回避率',             min:3,   max:10,  pct:1, slots:['head','body','charm'], pre:'身軽な'},
   xpGain:   {n:'経験値',             min:10,  max:30,  pct:1, slots:['head','charm'], pre:'賢き'},
   killHeal: {n:'倒すたびにHP回復',   min:0.5, max:2,   scale:1, dec:1, cond:1, slots:['head','body'], pre:'貪る'},
+  // 出撃中のスキルに効くもの（装備とスキルをつなぐ）
+  skillDmg: {n:'スキルのダメージ',   min:8,   max:30,  pct:1, slots:['weapon','head','charm'], pre:'魔導の'},
+  skillCd:  {n:'スキルの速さ',       min:5,   max:18,  pct:1, slots:['body','charm'], pre:'俊才の'},
+  skillArea:{n:'スキルの範囲',       min:8,   max:25,  pct:1, slots:['head','body'], pre:'広がる'},
+  skStart:  {n:'持って出撃',         min:1,   max:1,   int:1, skill:1, slots:['head','charm'], pre:'導きの'},   // s：スキルの種類。そのスキルを Lv+1 で持って出る
 };
+// スキルの名前と、訓練所で解放されるLv（skills.js の ACTIVES と同じ。装備の付与効果「持って出撃」で使う）
+export const SKILL_N = {blade:'回転刃', bolt:'落雷', fire:'火炎瓶', quake:'着地衝撃', missile:'魔弾', frost:'冷気',
+  barrier:'障壁', boomer:'ブーメラン', aura:'聖域', mine:'地雷', lance:'光線', time:'時の砂'};
+export const SKILL_LOCK = {barrier:1, boomer:3, aura:5, mine:7, lance:8, time:9};
 
 // レジェンド：ビルドの軸になる固有効果（武器種・部位ごとに2〜3種）
 export const UNIQUES = [
@@ -74,6 +83,12 @@ export const UNIQUES = [
   {id:'midas',    type:'charm',  name:'黄金律の宝珠', desc:'ゴールド獲得 +100%・ドロップ率 +50%'},
   {id:'wing',     type:'charm',  name:'天駆ける羽根', desc:'空中でもう1回跳べる（3段ジャンプ）'},
   {id:'tempest',  type:'charm',  name:'嵐の指輪',     desc:'10体倒すごとに落雷を5本（攻撃力の200%）'},
+  // スキルとつながるレジェンド
+  {id:'thunderking',type:'head', name:'雷帝の冠',     desc:'「落雷」を持って出撃する・落雷の数 +1'},
+  {id:'pyreheart', type:'body',  name:'火竜の心臓',   desc:'「火炎瓶」「地雷」の威力 +50%'},
+  {id:'orbit',     type:'charm', name:'円環の指輪',   desc:'「回転刃」の数 +2・回転刃は Lv4 で進化できる'},
+  {id:'archmage',  type:'charm', name:'大魔導の宝珠', desc:'スキルのダメージ +30%・スキルがボスに効く割合が2倍'},
+  {id:'seed',      type:'charm', name:'進化の種',     desc:'攻撃スキルが Lv4 で進化できる'},
 ];
 export const uniqueOf = id => UNIQUES.find(u => u.id === id);
 
