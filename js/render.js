@@ -26,6 +26,8 @@ function glowImg(c){
   }
   return g;
 }
+// L0：見えている左端（ゲーム内の x）。横持ちのボス戦で手前をずらしたとき（R.camX）に左へ広がる
+let L0 = -10;
 // bgA：背景を切り替えるとき（前のエリアの景色を薄く重ねる）の不透明度
 let bgA = 1;
 function glow(x, y, r, c, a = 1){ ctx.globalAlpha = a*bgA; ctx.drawImage(glowImg(c), x - r, y - r, r*2, r*2); ctx.globalAlpha = bgA; }
@@ -217,6 +219,12 @@ export function draw(){
     const a = age < 0 ? 1 : Math.max(0, 1 - age/1.4);
     if (a > 0) drawBg(zc.from, a);
   }
+  // 横持ちのボス戦：主人公とボスのまん中が画面の中央に来るよう、景色より手前を右へずらす（R.camX。背景はずらさない）
+  const camT = R.boss && VW > 360 ? Math.max(0, VW/2 - (PX + (R.boss.stopX ?? R.boss.x))/2) : 0;
+  R.camX = (R.camX || 0) + (camT - (R.camX || 0)) * 0.08;
+  if (Math.abs(R.camX) < 0.5 && !camT) R.camX = 0;
+  L0 = -10 - R.camX;
+  ctx.translate(R.camX, 0);
   // ドロップの光の柱
   for (const f of R.fx) if (f.kind==='pillar'){
     const F = DROP_FX[f.r], c = RAR[f.r].c, a = Math.min(1, f.t/f.max * 1.6);
@@ -303,8 +311,8 @@ export function draw(){
       glow(s.x + 8, s.y, s.r*1.6, c, 0.35); glow(s.x, s.y, s.r*2.4, c, 0.9); circ(s.x, s.y, s.r*0.6, '#fff');
     } else if (s.kind==='beam'){
       const q = s.t / s.max, c = s.hi ? '#9cc8ff' : '#ff8ab0', th = BEAM.th * (0.6 + 0.4*Math.sin(R.t*40)*0.5 + 0.4);
-      ctx.globalAlpha = 0.5*Math.min(1, q*3); ctx.fillStyle = c; ctx.fillRect(-10, s.y - th, s.x1 + 10, th*2);
-      ctx.globalAlpha = Math.min(1, q*3); ctx.fillStyle = '#ffffff'; ctx.fillRect(-10, s.y - th*0.3, s.x1 + 10, th*0.6);
+      ctx.globalAlpha = 0.5*Math.min(1, q*3); ctx.fillStyle = c; ctx.fillRect(L0, s.y - th, s.x1 - L0, th*2);
+      ctx.globalAlpha = Math.min(1, q*3); ctx.fillStyle = '#ffffff'; ctx.fillRect(L0, s.y - th*0.3, s.x1 - L0, th*0.6);
       ctx.globalAlpha = 1; glow(s.x1, s.y, 18, c, 0.9);
     } else if (s.kind==='pillar'){
       if (s.tele > 0){
@@ -359,7 +367,7 @@ export function draw(){
   }
   if (R.bossFx) drawBossKill(R.bossFx);
   // 時の砂：画面を少し紫に
-  if (R.sk.slowT > 0){ ctx.globalAlpha = Math.min(0.18, R.sk.slowT*0.3) * (R.sk.slowF < 0.3 ? 1.5 : 1); ctx.fillStyle = '#9a7dff'; ctx.fillRect(-10, VTOP, VW + 20, VBOT - VTOP); ctx.globalAlpha = 1; }
+  if (R.sk.slowT > 0){ ctx.globalAlpha = Math.min(0.18, R.sk.slowT*0.3) * (R.sk.slowF < 0.3 ? 1.5 : 1); ctx.fillStyle = '#9a7dff'; ctx.fillRect(L0, VTOP, VW + 20, VBOT - VTOP); ctx.globalAlpha = 1; }
   // ダメージ数字（会心は大きく、出た瞬間に弾む）
   ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.6)';
   for (const t of R.texts){
@@ -544,23 +552,23 @@ function drawBossTele(b){
   const a = 0.6 + 0.35*Math.sin(R.t*30);
   if (b.tele > 0){
     if (b.next === 'hop' || b.next === 'bighop' || b.next === 'quake3'){
-      ctx.fillStyle = `rgba(255,60,40,${a})`; ctx.fillRect(-10, GY-5, b.x + 10, 8);
+      ctx.fillStyle = `rgba(255,60,40,${a})`; ctx.fillRect(L0, GY-5, b.x - L0, 8);
       ctx.fillStyle = `rgba(255,220,200,${a})`;   // 衝撃波が来る向き
-      for (let x = b.x - 50; x > 0; x -= 34){ ctx.beginPath(); ctx.moveTo(x, GY - 1); ctx.lineTo(x + 9, GY - 6); ctx.lineTo(x + 9, GY + 4); ctx.fill(); }
+      for (let x = b.x - 50; x > L0; x -= 34){ ctx.beginPath(); ctx.moveTo(x, GY - 1); ctx.lineTo(x + 9, GY - 6); ctx.lineTo(x + 9, GY + 4); ctx.fill(); }
     }
     if (b.next === 'breath') orbLine(GY - 12, '#ff8a3a', b.x - b.w/2, a);
     // 突進：体の高さの帯と矢印（長押しで高く跳ぶ）
     if (b.next === 'charge'){
       const top = GY - b.fly - b.h*CHARGE.hitH;
-      ctx.fillStyle = `rgba(255,60,40,${0.18 + 0.15*a})`; ctx.fillRect(-10, top, b.x - b.w/2 + 10, GY - top);
+      ctx.fillStyle = `rgba(255,60,40,${0.18 + 0.15*a})`; ctx.fillRect(L0, top, b.x - b.w/2 - L0, GY - top);
       ctx.fillStyle = `rgba(255,220,200,${a})`;
-      for (let x = b.x - b.w/2 - 30; x > 0; x -= 40){ const y = (top + GY)/2; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 12, y - 8); ctx.lineTo(x + 12, y + 8); ctx.fill(); }
+      for (let x = b.x - b.w/2 - 30; x > L0; x -= 40){ const y = (top + GY)/2; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 12, y - 8); ctx.lineTo(x + 12, y + 8); ctx.fill(); }
     }
     // 光線：出る高さに太い点線（赤＝低い：跳んで空中に／青＝高い：跳ばない）
     if (b.next === 'beam'){
       const y = BEAM[b.beamH], c = b.beamH === 'high' ? '#7ab8ff' : '#ff6a9a';
       ctx.strokeStyle = c; ctx.globalAlpha = 0.4 + 0.5*a; ctx.lineWidth = 4; ctx.setLineDash([10, 6]);
-      ctx.beginPath(); ctx.moveTo(-10, y); ctx.lineTo(b.x - b.w/2, y); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+      ctx.beginPath(); ctx.moveTo(L0, y); ctx.lineTo(b.x - b.w/2, y); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
       glow(b.x - b.w/2, y, 12 + 10*(1 - Math.max(0, b.tele)/0.85), c, 0.9);
     }
   }
@@ -580,7 +588,7 @@ function drawFog(){
   const cx = PX + 30, cy = GY - 40;
   const g = ctx.createRadialGradient(cx, cy, 40, cx, cy, 165);
   g.addColorStop(0, 'rgba(10,16,32,0)'); g.addColorStop(1, `rgba(10,16,32,${0.88*R.fog})`);
-  ctx.fillStyle = g; ctx.fillRect(-10, VTOP - 10, VW + 20, GY + 30 - VTOP);
+  ctx.fillStyle = g; ctx.fillRect(L0, VTOP - 10, VW + 20, GY + 30 - VTOP);
   // 霧の中でも危ないものは「！」で分かる
   for (const e of R.enemies) if (warnOf(e)) bang(e.x, (e.under || e.phase === 'tele' && e.type === 'mole') ? GY - 22 : e.y - e.h - 10, 16);
   if (R.boss && R.boss.tele > 0) bang(R.boss.x, R.boss.y - R.boss.h - 10, 22);
@@ -915,7 +923,7 @@ function drawHUD(H){
 function drawBossKill(f){
   const age = f.max - f.t, a = Math.min(1, f.t/0.6);
   ctx.save();
-  ctx.beginPath(); ctx.rect(-10, VTOP - 10, VW + 20, GY - VTOP + 12); ctx.clip();   // 光は地面の上だけ（下のログを読みやすく）
+  ctx.beginPath(); ctx.rect(L0, VTOP - 10, VW + 20, GY - VTOP + 12); ctx.clip();   // 光は地面の上だけ（下のログを読みやすく）
   ctx.translate(f.x, f.y);
   ctx.globalAlpha = 0.35*a; ctx.fillStyle = '#fff4c8';
   for (let i = 0; i < 10; i++){

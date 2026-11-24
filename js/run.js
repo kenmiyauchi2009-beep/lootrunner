@@ -400,6 +400,7 @@ export function step(dt){
   if (R.hitstop > 0){ R.hitstop -= dt; return; }   // ヒットストップ中は時間を止める
   if (R.slowmo > 0){ R.slowmo -= dt; dt *= 0.3; }   // ボス撃破のスロー
   if (R.zoneCard && (R.zoneCard.t -= dt) <= 0) R.zoneCard = null;
+  R.healBud = Math.min(R.p.maxHp*HURT.heal, (R.healBud ?? 0) + R.p.maxHp*HURT.heal*dt);   // 倒したときの回復の上限（1秒あたり）
   if (R.bossFx && (R.bossFx.t -= dt) <= 0) R.bossFx = null;
   R.t += dt;
   if (R.clearT > 0 && (R.clearT -= dt) <= 0){ endRun(false, 'clear'); return; }
@@ -776,7 +777,8 @@ function updateBoss(e, dt, realDt = dt){
   const stopX = Math.min(VW - 70, PX + Math.max(60, Math.min(100, reach)));
   if (e.fly) e.y = GY - e.fly - Math.sin(R.t*2)*4;
   if (e.charging){ updateCharge(e, dt); e.fightT += realDt; return; }
-  if (e.x > stopX){ e.x -= 60*dt; return; }
+  e.stopX = stopX;
+  if (e.x > stopX){ e.x -= Math.max(60, (e.x - stopX)*3)*dt; return; }   // 離れているほど速く近づく（横持ちでも待たされない）
   e.fightT += realDt;
   if (e.exposed > 0) e.exposed -= dt;
   // 結界（第2形態から）：張っているあいだスキルがほとんど効かない。武器で3回たたくと割れてボスが止まる
@@ -1095,10 +1097,10 @@ function onKill(e){
   const xp = e.noLoot ? 0 : e.summon ? 1 : (XP[e.type] || 0) * (e.elite ? ELITE.xp : 1);
   if (xp) dropGem(cx, cy, xp);
   // 強化スキル「生命」：倒すたびに少し回復
-  if (R.sk.pas.vigor) R.p.hp = Math.min(R.p.maxHp, R.p.hp + R.p.maxHp * 0.002 * R.sk.pas.vigor);
+  if (R.sk.pas.vigor) killHealP(R.p.maxHp * 0.002 * R.sk.pas.vigor);
   // 装備：倒すたびにHP回復・8体ごとに落雷・嵐の指輪（10体ごとに落雷5本）
   const st = R.st;
-  if (st.killHeal) R.p.hp = Math.min(R.p.maxHp, R.p.hp + st.killHeal);
+  if (st.killHeal) killHealP(st.killHeal);
   if (st.killBolt && R.kills % 8 === 0) gearBolt(1, st.finalDmg * st.killBolt/100);
   if (st.uniq.has('tempest') && R.kills % 10 === 0) gearBolt(5, st.finalDmg * 2);
   burst(cx, cy, KILL_C[e.type] || (FOES2[e.type] && FOES2[e.type].look.c) || '#b07a48', e.type==='boss' ? 30 : 8);
@@ -1235,6 +1237,17 @@ export function drop(e, ilvl, minR){
   feedLine(line, up ? 'up' : '');
   saveGame();
 }
+// 受けるダメージの決まり（装備が育っても、敵の攻撃が意味を持つように）
+//   def：防御の効き方。防御 ÷（防御＋K）。K は敵Lv が上がるほど大きくなる（強い敵には防御が効きにくい）
+//   min：一撃で必ず受ける最大HPの割合（通常は難易度ごと、深層は高め、ボスの攻撃は2倍）
+//   heal：倒したときの回復（付与効果「倒すたびにHP回復」・強化スキル「生命」）は、合わせて1秒に最大HPのこの割合まで
+export const HURT = {defK:40, defKPerLv:4, defKFrom:25, min:lvD => 0.01*(lvD + 1), deepMin:d => 0.06 + 0.01*d, bossMul:2, heal:0.025};
+export const defRedNow = () => { const st = R.st, K = HURT.defK + HURT.defKPerLv*Math.max(0, elv() - HURT.defKFrom); return st.def / (st.def + K); };
+// 倒したときの回復：1秒あたりの上限を超えた分は回復しない
+function killHealP(v){
+  const g = Math.min(v, R.healBud ?? 0);
+  if (g > 0){ R.healBud -= g; R.p.hp = Math.min(R.p.maxHp, R.p.hp + g); }
+}
 // minPct：防御で減らしても最大HPのこの割合は必ず受ける（群れの体当たり・流砂）
 function hurtPlayer(d, src, inv = 0.8, minPct = 0){
   const p = R.p, st = R.st;
@@ -1242,9 +1255,11 @@ function hurtPlayer(d, src, inv = 0.8, minPct = 0){
   if (absorbHit()) return;   // スキル「障壁」
   // 回避
   if (Math.random() < st.dodgeC){ p.inv = 0.3; addText(PX, p.y - 40, '回避', '#9fe3ff', true); return; }
-  const dd = Math.max(d * (1 - st.defRed) * (st.taken ?? 1), p.maxHp * minPct);   // taken：強化スキル「守り」
+  const base = (R.deep ? HURT.deepMin(R.diff) : HURT.min(R.diff)) * (String(src).startsWith('boss') ? HURT.bossMul : 1);
+  const dd = Math.max(d * (1 - defRedNow()), p.maxHp * base) * (st.taken ?? 1);   // taken：強化スキル「守り」
+  const dmg = Math.max(dd, p.maxHp * minPct);
   if (R.boss) R.bossHits++;
-  p.hp -= dd; p.inv = inv * st.invMul;
+  p.hp -= dmg; p.inv = inv * st.invMul;
   // 反撃（棘の鎧・鉄壁セット・付与効果）
   if (st.thorns){
     for (const e of R.enemies) if (alive(e) && Math.abs(e.x - PX) < 80) hit(e, st.finalDmg * st.thorns/100, true);
@@ -1252,7 +1267,7 @@ function hurtPlayer(d, src, inv = 0.8, minPct = 0){
   }
   R.hurts[src] = (R.hurts[src] || 0) + 1;
   shake(0.25, 4); R.hurtFx = 0.3; sfx('hurt');
-  addText(PX, p.y - 40, '-' + Math.round(dd), '#ff6b6b', true);
+  addText(PX, p.y - 40, '-' + Math.round(dmg), '#ff6b6b', true);
   if (navigator.vibrate) navigator.vibrate(40);
   if (p.hp <= 0){
     if (R.st.uniq.has('revive') && !p.revived){ p.revived = true; p.hp = p.maxHp*0.5; p.inv = 1.5; addText(PX, p.y - 56, '不屈！', '#ffa53a', true); }

@@ -6,7 +6,7 @@ import { affRange, tierRange, fmtNum, fmtAff, affGrade, baseStats, computeStats,
   smithUpgrade, smithReroll, smithValue, smithLock, salvage } from './items.js';
 import { SAVE, saveGame } from './save.js';
 import { closeModal, dialog, closeDialog, toast } from './ui.js';
-import { startRun, deepOpen, HINTS } from './run.js';
+import { startRun, deepOpen, HINTS, HURT } from './run.js';
 import { renderHub } from './hub.js';
 import { ACTIVES, PASSIVES, unlocked } from './skills.js';
 import { TRAIN } from './meta.js';
@@ -33,6 +33,8 @@ function diffHTML(d){
 }
 
 // ---------- 拠点の表示 ----------
+// 防御の効き方は敵Lv で変わる（run.js の HURT）。拠点では敵Lv10 と Lv40 のときを出す
+const redAt = (st, lv) => st.def / (st.def + HURT.defK + HURT.defKPerLv*Math.max(0, lv - HURT.defKFrom));
 export function renderBase(){
   // 拠点で達成した実績（施設の強化など）もその場で受け取る
   checkAch();
@@ -49,7 +51,7 @@ export function renderBase(){
   $('bPower').textContent = fmt(st.power);
   $('bStats').innerHTML = [
     ['DPS(目安)', fmt(st.dps)], ['ボス火力', fmt(st.bossDps)], ['最大HP', fmt(st.hp)],
-    ['被ダメ軽減', Math.round(st.defRed*100) + '%' + (st.dodgeC ? ` 回避${Math.round(st.dodgeC*100)}%` : '')], ['攻撃/秒', st.rate.toFixed(2)], ['会心', `${Math.round(st.crit)}% ×${st.critM.toFixed(2)}`], ...(st.skillF > 1.005 ? [['スキルの強さ', Math.round(st.skillF*100) + '%']] : []),
+    ['被ダメ軽減（敵Lv10〜40）', `${Math.round(redAt(st, 10)*100)}〜${Math.round(redAt(st, 40)*100)}%` + (st.dodgeC ? ` 回避${Math.round(st.dodgeC*100)}%` : '')], ['攻撃/秒', st.rate.toFixed(2)], ['会心', `${Math.round(st.crit)}% ×${st.critM.toFixed(2)}`], ...(st.skillF > 1.005 ? [['スキルの強さ', Math.round(st.skillF*100) + '%']] : []),
   ].map(([k,v]) => `<div class="stat"><small>${k}</small><b>${v}</b></div>`).join('');
   $('bEquip').innerHTML = EQUIP_SLOTS.map(k => {
     const it = SAVE.equip[k];
