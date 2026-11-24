@@ -1,4 +1,5 @@
 // 装備・冒険のデータ定義
+import { FOES2, ZONE_FOES3, DEEP_FOES2, BOSSES2, ZONE_BOSS3, DEEP_BOSSES } from './foes.js';
 export const RAR = [
   {n:'コモン',     c:'#c9d3d6'},
   {n:'アンコモン', c:'#5fd17a'},
@@ -178,6 +179,13 @@ export const BOSSES = {
   witch:    {n:'森の魔女',       w:34, h:54, fly:16, atk:['orbs','summon','beam'], p2:['orbs','summon','beam','combo']},
   dragon:   {n:'炎竜',           w:66, h:60, atk:['pillars','breath','charge'], p2:['pillars','breath','beam','charge','combo']},
 };
+// 追加のボス（foes.js）もここにまとめる
+Object.assign(BOSSES, BOSSES2);
+for (const [k, f] of Object.entries(FOES2)) FOE_N[k] = f.n;
+// 通常の難易度3から：エリアごとの追加の敵とボス
+ZONES.forEach((z, i) => { z.foes3 = ZONE_FOES3[i]; z.boss3 = ZONE_BOSS3[i]; });
+// 深層：エリアごとの追加の敵と、ボスの並び
+DEEP_ZONES.forEach((z, i) => { Object.assign(z.foes, DEEP_FOES2[i]); z.bosses = DEEP_BOSSES[i]; });
 
 // ドロップの光の柱（レア度ごと）。h:0 は画面の上まで届く
 export const DROP_FX = [

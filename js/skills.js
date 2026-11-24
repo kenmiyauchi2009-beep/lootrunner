@@ -8,6 +8,7 @@ import { $ } from './util.js';
 import { SAVE } from './save.js';
 import { R, PX, GY, VW, VTOP, hit, burst, shake, ecenter, resumeClock, foeHp } from './run.js';
 import { skillSvg } from './skillart.js';
+import { FOES2 } from './foes.js';
 import { dialog, closeDialog } from './ui.js';
 import { sfx } from './audio.js';
 import { trainPerks } from './meta.js';
@@ -65,6 +66,7 @@ const MAX_SLOTS = 4;
 export const xpNeed = lv => Math.round(5 + lv*3 + Math.pow(lv, 1.8));
 // 敵ごとの経験値
 export const XP = {mini:1, slime:2, bat:2, thrower:4, shield:3, boar:3, bigslime:3, mole:3, bomber:2, ghost:2, chest:0, boss:30, frog:3, cannon:4, spikeball:3, wisp:4};
+for (const [k, f] of Object.entries(FOES2)) XP[k] = f.xp;
 
 export function initSkills(){
   const T = trainPerks();
@@ -138,7 +140,7 @@ export function catchUp(lv){
 }
 export function gainXp(v){
   const S = R.sk;
-  S.xp += v * (1 + (R.st.xpGain || 0)/100 + 0.08*(S.pas.magnet || 0)) * (R.xpMul || 1);   // 装備の「経験値」・賢者の冠・引力・日替わり
+  S.xp += v * (1 + (R.st.xpGain || 0)/100 + 0.08*(S.pas.magnet || 0)) * (R.xpMul || 1) * (R.deepXp || 1);   // 深層は敵が多い分、経験値を減らす   // 装備の「経験値」・賢者の冠・引力・日替わり
   while (S.xp >= S.need){ S.xp -= S.need; S.lv++; S.need = xpNeed(S.lv); S.pending++; }
 }
 function updateGems(dt){

@@ -1,6 +1,6 @@
 // やり込み要素（処理）：拠点の施設・実績・記録・日替わりダンジョン
 import { SAVE, saveGame, HIST_MAX } from './save.js';
-import { UNIQUES, MATS, FAC_MAX } from './data.js';
+import { UNIQUES, MATS, FAC_MAX, FOE_N, BOSSES } from './data.js';
 import { computeStats } from './items.js';
 
 const sum = o => Object.values(o || {}).reduce((a, b) => a + (Number(b) || 0), 0);
@@ -83,6 +83,8 @@ export const ACH = [
   {id:'deep1',    n:'深層へ',         d:'深層で1000mに到達する',         goal:1000,  v:() => Math.max(0, ...Object.values(SAVE.prog.deep.best)), r:{g:100000, m:[4, 2]}},
   {id:'deepClr',  n:'深層の踏破者',   d:'深層を踏破する（10000m）',      goal:1,     v:() => sum(SAVE.prog.deep.clears), r:{g:500000, m:[4, 5]}},
   {id:'deep5',    n:'深淵の主',       d:'深層 難易度5を踏破する',        goal:1,     v:() => SAVE.prog.deep.clears[5] || 0, r:{g:2000000, m:[4, 10]}},
+  {id:'foes40',   n:'魔物博士',       d:'40種類の敵に出会う',            goal:40,    v:() => Object.keys(FOE_N).filter(k => SAVE.prog.foes[k]).length, r:{g:50000, m:[3, 4]}},
+  {id:'bossAll2', n:'ボス図鑑',       d:'すべての種類のボスに出会う',    goal:Object.keys(BOSSES).length, v:() => Object.keys(BOSSES).filter(k => SAVE.prog.foes[k]).length, r:{g:300000, m:[4, 4]}},
   {id:'bossAll',  n:'四天王',         d:'4体のボスをすべて倒す',         goal:4,     v:() => Object.keys(S().bossKinds).length, r:{g:3000}},
   {id:'flawless', n:'無傷の勝利',     d:'ダメージを受けずにボスを倒す',  goal:1,     v:() => S().flawless,        r:{g:3000, m:[2, 2]}},
   {id:'elite10',  n:'精鋭狩り',       d:'エリートを10体倒す',            goal:10,    v:() => S().elites,          r:{g:2000}},
@@ -116,7 +118,7 @@ const TITLES = {d500:'駆け出し', boss1:'王殺し', d1000:'荒野の旅人',
   elite100:'精鋭の天敵', kill1k:'千人斬り', kill10k:'万人斬り', kill50k:'無双', runKill:'嵐を呼ぶ者', stomp500:'踏み名人',
   lv20:'育ち盛り', evo1:'進化の芽', evo6:'探究者', evo12:'進化の極み', leg1:'伝説を知る者', leg8:'収集家', legAll:'伝説の語り部',
   set4:'そろい踏み', up10:'鍛冶の鬼', t6:'目利き', fac1:'村づくり', facMax:'村長', daily1:'挑戦者', daily7:'日課の人',
-  dailyClr:'今日の英雄', gold1m:'大富豪', time5h:'旅慣れた足', deep1:'深層の探索者', deepClr:'深層の踏破者', deep5:'深淵の主'};
+  dailyClr:'今日の英雄', gold1m:'大富豪', time5h:'旅慣れた足', deep1:'深層の探索者', deepClr:'深層の踏破者', deep5:'深淵の主', foes40:'魔物博士', bossAll2:'魔王殺しの旅人'};
 for (const a of ACH) a.t = TITLES[a.id] || a.n;
 // マント：受け取った実績の数で増える（冒険中と拠点の主人公に描く）
 export const CAPES = [

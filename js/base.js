@@ -1,12 +1,12 @@
 // 拠点画面（装備・所持品・鍛冶・図鑑）
 import { $, fmt } from './util.js';
-import { RAR, WTYPES, SLOT_N, ICON, AFFIX, UNIQUES, uniqueOf, SETS, MATS, EQUIP_SLOTS, slotOfKey, INV_LIMIT, invExpandCost, ZONES, diffInfo, CP_RULE, DEEP_ZONES, deepInfo, DEEP_LV } from './data.js';
+import { RAR, WTYPES, SLOT_N, ICON, AFFIX, UNIQUES, uniqueOf, SETS, MATS, EQUIP_SLOTS, slotOfKey, INV_LIMIT, invExpandCost, ZONES, diffInfo, CP_RULE, DEEP_ZONES, deepInfo, DEEP_LV, FOE_N, BOSSES } from './data.js';
 import { affRange, tierRange, fmtNum, fmtAff, affGrade, baseStats, computeStats, powerWith, equipKeyFor, equippedKey,
   salvageValue, salvageMats, upgradeCost, rerollCost, valueCost, lockCost, canPay,
   smithUpgrade, smithReroll, smithValue, smithLock, salvage } from './items.js';
 import { SAVE, saveGame } from './save.js';
 import { closeModal, dialog, closeDialog, toast } from './ui.js';
-import { startRun, deepOpen } from './run.js';
+import { startRun, deepOpen, HINTS } from './run.js';
 import { renderHub } from './hub.js';
 import { ACTIVES, PASSIVES, unlocked } from './skills.js';
 import { TRAIN } from './meta.js';
@@ -356,8 +356,14 @@ export function openCodex(){
   }).join('');
   const nEvo = Object.keys(SAVE.skill.evo).length;
   $('sheet').style.setProperty('--rc', 'var(--text)');
-  $('sheet').innerHTML = `<h3>図鑑</h3><div class="sub">レジェンド ${found}/${UNIQUES.length} ・ 進化 ${nEvo}/12 ・ セットは見つけた部位に色がつく</div>
-    <div class="codex"><h4>レジェンド</h4>${legends}<h4>セット</h4>${sets}<h4>スキルと進化</h4>${skills}</div>
+  // 敵とボス：一度出会うと名前と説明が出る（出会った記録 SAVE.prog.foes を使う）
+  const met = SAVE.prog.foes, desc = k => (HINTS[k] || '').split('：')[1] || '';
+  const foeIds = Object.keys(FOE_N).filter(k => k !== 'chest'), bossIds = Object.keys(BOSSES);
+  const nFoe = foeIds.filter(k => met[k]).length, nBoss = bossIds.filter(k => met[k]).length;
+  const foes = foeIds.map(k => met[k] ? `<div class="cx"><b>${FOE_N[k]}</b><small>${desc(k)}</small></div>` : `<div class="cx no"><b>？？？</b><small>まだ出会っていない</small></div>`).join('');
+  const bossRows = bossIds.map(k => met[k] ? `<div class="cx"><b>${BOSSES[k].n}</b><small>${desc(k)}</small></div>` : `<div class="cx no"><b>？？？</b><small>まだ出会っていない</small></div>`).join('');
+  $('sheet').innerHTML = `<h3>図鑑</h3><div class="sub">レジェンド ${found}/${UNIQUES.length} ・ 進化 ${nEvo}/12 ・ 敵 ${nFoe}/${foeIds.length} ・ ボス ${nBoss}/${bossIds.length}</div>
+    <div class="codex"><h4>レジェンド</h4>${legends}<h4>セット</h4>${sets}<h4>スキルと進化</h4>${skills}<h4>敵（${nFoe}/${foeIds.length}）</h4>${foes}<h4>ボス（${nBoss}/${bossIds.length}）</h4>${bossRows}</div>
     <div class="actions"><button class="wide" id="aClose">閉じる</button></div>`;
   $('modal').classList.remove('hidden');
   $('sheet').scrollTop = 0;

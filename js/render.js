@@ -3,6 +3,8 @@ import { fmt } from './util.js';
 import { RAR, DROP_FX, ELITE_MODS, BOSSES, ZONES } from './data.js';
 import { drawCape, drawHelmet, drawTrim } from './hero.js';
 import { drawSkillIcon } from './skillart.js';
+import { drawFoe2, drawBossGeneric } from './foeart.js';
+import { FOES2 } from './foes.js';
 import { SAVE } from './save.js';
 import { GY, PX, R, ctx, VW, SCALE, DPR, OY, VTOP, VBOT, zone, zoneIdx, zoneAt, bossName, bossTotal, elv, BOSS_LIMIT, ORB, PILLAR, VENT, ventState, BEAM, CHARGE, WARD } from './run.js';
 import { ACTIVES, PASSIVES } from './skills.js';
@@ -541,7 +543,7 @@ function drawHazards(){
 function drawBossTele(b){
   const a = 0.6 + 0.35*Math.sin(R.t*30);
   if (b.tele > 0){
-    if (b.next === 'hop' || b.next === 'bighop'){
+    if (b.next === 'hop' || b.next === 'bighop' || b.next === 'quake3'){
       ctx.fillStyle = `rgba(255,60,40,${a})`; ctx.fillRect(-10, GY-5, b.x + 10, 8);
       ctx.fillStyle = `rgba(255,220,200,${a})`;   // 衝撃波が来る向き
       for (let x = b.x - 50; x > 0; x -= 34){ ctx.beginPath(); ctx.moveTo(x, GY - 1); ctx.lineTo(x + 9, GY - 6); ctx.lineTo(x + 9, GY + 4); ctx.fill(); }
@@ -564,7 +566,7 @@ function drawBossTele(b){
   }
   // 弾の高さ：もうすぐ撃つ弾の高さに線を出す（赤＝低い：跳ぶ／青＝高い：くぐる）
   let soon = null;
-  if (b.tele > 0 && b.next === 'orbs' && b.tele < 0.5) soon = b.orbH[0];
+  if (b.tele > 0 && (b.next === 'orbs' || b.next === 'volley') && b.tele < 0.5) soon = b.orbH[0];
   else if (!b.tele && b.q.length && b.q[0].a === 'orb' && b.q[0].at - b.qt < 0.45) soon = b.q[0].h;
   if (soon) orbLine(ORB[soon], soon === 'high' ? '#7ab8ff' : '#ff6a9a', b.x - b.w/2, a);
 }
@@ -744,6 +746,7 @@ function drawEnemy(e){
     }
     case 'boss': drawBoss(e, F); break;
     default:
+      if (FOES2[e.type]){ drawFoe2(ctx, e, F, {glow, bang}); break; }   // 追加の敵（foeart.js）
       // 絵がまだない種類でも見えなくならないように（気づけるよう派手な色）
       rr(x - w/2, y - h, w, h, 4, F || '#ff3dc8');
   }
@@ -773,7 +776,10 @@ function drawBoss(e, F){
   const {x, y, w, h} = e, tele = e.tele > 0 && Math.sin(R.t*30) > 0;
   const lift = e.tele > 0 && (e.next === 'hop' || e.next === 'bighop') ? -8 * Math.min(1, (0.85 - e.tele) * 3) : 0;
   const hot = e.rage || e.p2;
-  if (e.boss === 'kingslime'){
+  if (BOSSES[e.boss].shape){   // 追加のボス（foeart.js）
+    const lift2 = e.tele > 0 && (e.next === 'hop' || e.next === 'bighop' || e.next === 'quake3') ? -8 * Math.min(1, (0.85 - e.tele) * 3) : 0;
+    drawBossGeneric(ctx, e, F, {glow, bang}, {lift:lift2, hot, tele});
+  } else if (e.boss === 'kingslime'){
     const sq = 1 + Math.sin(e.t*5)*0.05 - (lift ? 0.08 : 0), by = y + lift;
     ctx.fillStyle = F || (tele ? '#a8e08a' : hot ? '#4fae5a' : '#5cc96a');
     ctx.beginPath(); ctx.ellipse(x, by - h/2*sq, w/2/sq, h/2*sq, 0, 0, Math.PI*2); ctx.fill();

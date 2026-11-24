@@ -10,6 +10,7 @@ import { sfx, unlockAudio, isMuted, setMuted, playBgm, duckBgm, pauseBgm } from 
 import { initSkills, updateSkills, onLand, dropGem, openLevelUp, skillSummary, XP, catchUp, absorbHit, applyPassives, updateThreat, setMeetHint } from './skills.js';
 import { dailyPlan, seeded, recordRun, rewardText, claimText, claimShort, DAILY_MODS } from './meta.js';
 import { hideTitle } from './title.js';
+import { FOES2, BOSSES2 } from './foes.js';
 
 export const VH = 300, GY = 255, PX = 70;
 export let R = null, cv = $('cv'), ctx = cv.getContext('2d');
@@ -84,7 +85,7 @@ export function startRun(opt = {}){
   const base = computeStats(SAVE.equip), st = {...base, stompMul:1};   // st は出撃中に強化スキルで変わる
   R = {dist:start, px:start*25, speed:150, base, st, eid:0, levelup:false, hordeT:45, horde:null,
        diff, start, cpRun:start > 0, lvOff:D.lvOff, hpMul:D.hpMul, dmgMul:D.dmgMul, tc:D.tierCap, tOff:start ? catchFor(start).t : 0,
-       deep, lenMul:deep ? DEEP_STRETCH : 1, clearDist:deep ? DEEP_LEN : CLEAR_DIST, blvOff:deep ? DEEP_LV : 0,
+       deep, lenMul:deep ? DEEP_STRETCH : 1, deepXp:deep ? SWARM.xp : 1, clearDist:deep ? DEEP_LEN : CLEAR_DIST, blvOff:deep ? DEEP_LV : 0,
        p:{y:GY, vy:0, jumps:0, hold:false, buf:0, hp:st.hp, maxHp:st.hp, inv:0, atkT:0.4, revived:false, swing:0, swingMax:0.18},
        enemies:[], shots:[], eshots:[], haz:[], fx:[], texts:[], spawnT:1.0, nextBoss:start + 500, boss:null, gimT:6, fog:0,
        gold:0, kills:0, stomps:0, jumpsUsed:0, hurts:{}, loot:[], paused:false, over:false, t:0, elites:0, bossLog:[],
@@ -158,7 +159,7 @@ export const zoneIdx = () => R.deep ? Math.min(DEEP_ZONES.length - 1, Math.floor
 export const zoneAt = i => R.deep ? DEEP_ZONES[i] : ZONES[R.zoneOrder ? R.zoneOrder[i] : i];
 export const zone = () => zoneAt(zoneIdx());
 export const zoneSong = () => R.deep ? 'deep' + zoneIdx() : 'zone' + (R.zoneOrder ? R.zoneOrder[zoneIdx()] : zoneIdx());
-export const bossId = () => { const Z = zone(); return Z.bosses ? Z.bosses[(R.nextBoss/500 - 1) % Z.bosses.length] : Z.boss; };
+export const bossId = () => { const Z = zone(); return Z.bosses ? Z.bosses[(R.nextBoss/500 - 1) % Z.bosses.length] : R.diff >= NEW_FOES_FROM && Z.boss3 ? Z.boss3 : Z.boss; };
 export const bossName = e => (e && e.prefix || '') + BOSSES[e ? e.boss : bossId()].n;
 export const bossTotal = () => R.clearDist / 500;
 // 進み具合の距離：深層は距離が5倍なので、敵の強さ・湧き方には5分の1にした距離を使う
@@ -194,6 +195,8 @@ export const EB = {
   wisp:     {hp:18, dmg:6,  w:18, h:18, gold:5, sp:28},   // 宙に浮かび、周りの敵を回復する（くぐれる）
   boss:    {hp:357, dmg:18, w:56, h:70, gold:60},          // HP は BOSS_GROW で伸びる
 };
+// 追加の敵（foes.js）
+for (const [k, f] of Object.entries(FOES2)) EB[k] = {hp:f.hp, dmg:f.dmg, w:f.w, h:f.h, gold:f.gold, sp:f.sp};
 // コウモリの高さ：low は立っていると当たる（跳んで越える）、high は大きく跳ぶと当たる
 export const BAT_LANE = {low:GY - 8, high:GY - 100};
 // 霊の高さ：GY-4（立っていると当たる）〜 GY-80（跳ぶと当たる）をゆっくり行き来する
@@ -213,6 +216,7 @@ export const BOSS_DMG_GROW = 1.12;
 // スキルの効き方：投石兵・盾兵には効きにくい。ボスには10%だけ効く（下の hit() でボスのLvの差も打ち消す）。
 // スキルは数が多く当たるので、これでボスに与えるダメージの約6割がスキル・約4割が装備になる（シミュレーションで確認）
 export const SKILL_RES = {thrower:0.35, shield:0.6, boss:0.1};
+for (const [k, f] of Object.entries(FOES2)) if ((f.traits || []).includes('armor')) SKILL_RES[k] = 0.5;   // 硬い敵：スキルが半分
 // ボスのHPの倍率（スキルが効くようにした分の調整用）
 export const BOSS_TUNE = {hp:1.5};   // スキルが効くようになった分と、新しい攻撃を見せる時間の分、HPを多めに
 const ELITE = {hp:3, dmg:1.3, size:1.25, gold:5, xp:5, chance:0.012, grow:1/150000};   // 1回の出撃で5体くらい
@@ -233,6 +237,24 @@ export function mkEnemy(type, o = {}){
   if (type==='cannon'){ e.cd = 1.0; e.nextHi = rng() < 0.5; }
   if (type==='wisp'){ e.ph = rng()*6; e.healT = 1.5; e.y = GY - 50; }
   if (type==='spikeball') e.rot = 0;
+  const G = FOES2[type];
+  if (G){   // 追加の敵：動きごとの準備と特性
+    const tr = G.traits || [];
+    e.spiky = tr.includes('spiky'); e.guard = tr.includes('guard'); e.regen = tr.includes('regen'); e.boom = tr.includes('boom');
+    if (G.ai === 'fly'){ e.lane = G.lane === 'rand' ? (rng() < 0.5 ? 'low' : 'high') : G.lane; e.baseY = e.lane === 'low' ? GY - 8 : e.lane === 'mid' ? GY - 38 : GY - 100; e.y = e.baseY; }
+    if (G.ai === 'hover' || G.fly === 'hover'){ e.ph = rng()*Math.PI*2; e.lo = G.lo ?? 30; e.hi = G.hi ?? 80; }
+    if (G.fly === 'high'){ e.baseY = GY - 95; e.y = e.baseY; }
+    if (G.ai === 'hop'){ e.hopT = 0.2 + rng()*0.6; e.vy = 0; }
+    if (G.ai === 'burrow'){ e.phase = 'under'; e.under = true; }
+    if (G.ai === 'shoot'){ e.cd = 1.0 + rng()*0.5; e.nextHi = G.pat === 'high' ? true : G.pat === 'alt' ? rng() < 0.5 : false; e.stood = false; }
+    if (G.ai === 'swoop'){ e.phase = 'fly'; e.baseY = GY - 95; e.y = e.baseY; }
+    if (G.ai === 'phase'){ e.phT = 1.5 + rng(); e.solid = true; }
+    if (G.ai === 'summon') e.sumT = 1.5;
+    if (G.ai === 'statue') e.phase = 'idle';
+    if (G.ai === 'lob') e.phase = 'walk';
+    if (G.ai === 'roll') e.rot = 0;
+    if (tr.includes('gold')) e.gold *= 1;   // ゴールドは EB の値で多め
+  }
   if (type==='boss'){
     const K = BOSSES[o.boss]; e.boss = o.boss; e.w = K.w; e.h = K.h; e.fly = K.fly || 0; e.y = GY - e.fly;
     e.q = []; e.qt = 0; e.cd = 1.2; e.fightT = 0; e.last = [];
@@ -267,12 +289,15 @@ export const HINTS = {
   ward:'結界：スキルがほとんど効かない。武器で3回たたくと割れて、ボスが止まる',
   last:'最後のあがき：HPが残り少ないと攻撃が速くなる',
   threat:'脅威：スキルが育つと敵も強くなる（HP・数・エリート・大群）',
+  swarm:'深層の群れ：ふだんから大群並みに敵が来る。範囲の広いスキルで崩す',
   frog:'跳ねガエル：ぴょんと跳ねて近づく。踏むか、跳び越える',
   cannon:'砲台：光ったら撃つ。赤い線＝低い弾（跳ぶ）／青い線＝高い弾（跳ばない）',
   spikeball:'鉄球：トゲで踏めない。跳び越えるか、先に倒す',
   wisp:'癒しの灯：周りの敵を回復する。先に倒す（下はくぐれる）',
 };
 setMeetHint(k => meet(k));
+for (const [k, f] of Object.entries(FOES2)) HINTS[k] = f.hint;
+for (const [k, b] of Object.entries(BOSSES2)) HINTS[k] = b.hint;
 function meet(key){
   const F = SAVE.prog.foes;
   if (F[key] || !HINTS[key]) return;
@@ -292,7 +317,10 @@ function spawnEnemy(){
   const w = {};
   for (const [k, [wt, from]] of Object.entries(Z.foes)) if (zd >= from) w[k] = wt;
   // 通常の難易度3から、新しい敵も混ざる
-  if (!R.deep && !R.daily && R.diff >= NEW_FOES_FROM) for (const [k, [wt, from]] of Object.entries(NEW_FOES)) if (zd >= from) w[k] = (w[k] || 0) + wt;
+  if (!R.deep && R.diff >= NEW_FOES_FROM){
+    if (!R.daily) for (const [k, [wt, from]] of Object.entries(NEW_FOES)) if (zd >= from) w[k] = (w[k] || 0) + wt;
+    for (const [k, [wt, from]] of Object.entries(Z.foes3 || {})) if (zd >= from) w[k] = (w[k] || 0) + wt;   // エリアごとの追加の敵
+  }
   const type = pickW(w, rng);
   const elite = R.dist - R.start > 120 && rng() < (ELITE.chance + d*ELITE.grow) * R.eliteMul * (1 + THREAT.elite*thr());
   const e = mkEnemy(type, {elite, rng});
@@ -304,6 +332,9 @@ function spawnEnemy(){
 // 大群：予告のあと、小さいスライムがすき間なく固まった「壁」が何度も来る。
 // 長い壁はジャンプでは越えきれないので、範囲攻撃のスキルで崩す（大群＝スキルの関門、ボス＝装備の関門）
 export const HORDE = {every:40, walls:6, gap:1.0};
+// 深層の群れ：ふだんから大群並みに出る。spawn：ふつうの敵の出る量（倍）/ every：壁が来る間隔（秒）/ wall：壁の大きさ（大群の壁に対する割合）
+// cap：画面にいる敵がこれより多いときは壁を足さない（重くならないように）
+export const SWARM = {spawn:3, every:1.5, wall:0.8, cap:90, xp:0.4};   // xp：深層の経験値の倍率（敵が多い分、レベルの上がり方を今まで通りに）
 // 大群の育ち具合の時計。日替わりはボス戦の長さで変わらないよう、走った距離から数える
 const hordeT = () => (R.daily ? R.dist / R.speed : R.t) + R.tOff;
 const wallSize = () => Math.min(18, 5 + Math.floor(hordeT() / 25)) + Math.round(THREAT.wall*thr());
@@ -394,7 +425,16 @@ export function step(dt){
   }
   if (!R.boss && !(R.clearT > 0)){
     R.spawnT -= dt;
-    if (R.spawnT <= 0){ spawnEnemy(); R.spawnT = Math.max(0.45, 1.5 - dEff()/1500) / (1 + THREAT.spawn*thr()) * rnd(0.7, 1.3, R.cr); }
+    if (R.spawnT <= 0){ spawnEnemy(); R.spawnT = Math.max(0.45, 1.5 - dEff()/1500) / (1 + THREAT.spawn*thr()) / (R.deep ? SWARM.spawn : 1) * rnd(0.7, 1.3, R.cr); }
+    // 深層：大群の予告がなくても、小さいスライムの壁がずっと流れてくる
+    if (R.deep && R.dist < R.nextBoss - 60 && (R.swarmT = (R.swarmT ?? 2) - dt) <= 0){
+      R.swarmT = SWARM.every * rnd(0.8, 1.2, R.cr);
+      if (R.enemies.length < SWARM.cap){
+        const n = Math.max(3, Math.round(wallSize() * SWARM.wall));
+        for (let i = 0; i < n; i++){ const e = mkEnemy('mini', {rng:R.cr}); e.x += i*11; e.t = i*0.7; e.noLoot = true; R.enemies.push(e); }   // 群れ：経験値・ゴールドなし
+        meet('swarm');
+      }
+    }
   }
   updateHorde(dt);
   updateGimmick(dt, scroll);
@@ -435,7 +475,7 @@ export function step(dt){
     else moveFoe(e, dt, scroll, m);
     e.vel = (e.x - x0) / dt;   // 画面上の速さ（ボットが当たるまでの時間を読むのに使う）
     if (e.dead) continue;
-    if (has(e, 'regen') && e.hp > 0) e.hp = Math.min(e.maxHp, e.hp + e.maxHp*0.05*dt);
+    if ((has(e, 'regen') || e.regen) && e.hp > 0) e.hp = Math.min(e.maxHp, e.hp + e.maxHp*(e.regen ? 0.04 : 0.05)*dt);
 
     if (e.poisonT > 0){ e.poisonT -= dt; e.hp -= e.poisonDps*dt; }   // 毒牙
     if (e.burnT > 0){
@@ -613,8 +653,105 @@ function moveFoe(e, dt, scroll, m){
         R.fx.push({kind:'ring', x:e.x, y:e.y - e.h/2, r:110, t:0.4, max:0.4, c:'140,255,190'});
       }
       break;
-    default:   // mini・slime・bigslime・shield
+    default:   // mini・slime・bigslime・shield・追加の敵
+      if (FOES2[e.type]) moveGeneric(e, dt, scroll, m, sp);
+      else e.x -= (sp + scroll)*dt;
+  }
+}
+
+// 追加の敵の動き（foes.js の ai）
+function moveGeneric(e, dt, scroll, m, sp){
+  const G = FOES2[e.type], p = R.p;
+  // 宙に浮かぶ・高く飛ぶ敵の高さ
+  const hover = () => { e.y = GY - e.lo - (1 - Math.cos(e.t*2 + e.ph))/2 * (e.hi - e.lo); };
+  switch (G.ai){
+    case 'walk': e.x -= (sp + scroll)*dt; break;
+    case 'roll': e.x -= (sp + scroll)*dt; e.rot = (e.rot || 0) + dt*10*m; break;
+    case 'fly':  e.x -= (sp + scroll)*dt; e.y = e.baseY + Math.sin(e.t*5) * (e.lane === 'low' ? 2 : 4); break;
+    case 'hover': e.x -= (sp + scroll)*dt; hover(); break;
+    case 'hop':
+      if (e.y >= GY && e.vy >= 0){
+        e.y = GY; e.vy = 0; e.x -= scroll*dt;
+        if (e.x < VW + 10 && (e.hopT -= dt*m) <= 0){ e.vy = -G.hopV; e.hopT = G.every + Math.random()*0.3; }
+      } else {
+        e.vy += 900*dt*m; e.y += e.vy*dt*m; e.x -= (G.hopVx*m + scroll)*dt;
+        if (e.y >= GY){ e.y = GY; e.vy = 0; }
+      }
+      break;
+    case 'charge': case 'statue':
+      if (e.phase === 'walk' || e.phase === 'idle'){
+        e.x -= ((e.phase === 'idle' ? 0 : sp) + scroll)*dt;
+        if (e.x < PX + (G.ai === 'statue' ? 190 : 200) && e.x > PX + 70){ e.phase = 'tele'; e.tele = G.tele || 0.55; }
+      } else if (e.phase === 'tele'){
+        e.x -= scroll*dt; e.tele -= dt*m;
+        if (e.tele <= 0){ e.phase = 'charge'; sfx('thud'); }
+      } else e.x -= ((G.cs || 240)*m + scroll)*dt;
+      break;
+    case 'burrow':
+      if (e.phase === 'under'){
+        e.x -= (sp + scroll)*dt;
+        if (e.x - PX < 115){ e.phase = 'tele'; e.tele = 0.55; sfx('warn'); }
+      } else if (e.phase === 'tele'){
+        e.x -= (sp + scroll)*dt; e.tele -= dt*Math.max(m, 0.4);
+        if (e.tele <= 0){ e.phase = 'pop'; e.under = false; e.popT = 0.3; burst(e.x, GY, G.look.c2 || '#8a6a4a', 8); sfx('thud'); shake(0.1, 2); }
+      } else {
+        e.x -= (20*m + scroll)*dt;
+        if (e.popT > 0){ e.popT -= dt; if (!e.spiked && Math.abs(e.x - PX) < 13 && p.y > GY - 34){ e.spiked = true; hurtPlayer(e.dmg, e.type); } }
+      }
+      break;
+    case 'shoot': {
+      // 近づいたら止まり（地面と一緒に流れる）、光ったあとに弾を撃つ。空を飛ぶものは高いところから撃つ
+      if (G.fly === 'hover') hover();
+      else if (G.fly === 'high') e.y = e.baseY + Math.sin(e.t*3)*4;
+      if (!e.stood){ e.x -= (sp + scroll)*dt; if (e.x < Math.max(VW*0.75, PX + 190)) e.stood = true; }
+      else e.x -= (scroll + 6)*dt;
+      if (e.x < VW - 10 && e.x > PX + 50){
+        e.cd -= dt*m; e.wind = e.cd < 0.45;
+        if (e.cd <= 0){
+          const hi = e.nextHi;
+          e.nextHi = G.pat === 'alt' ? !e.nextHi : G.pat === 'rand' ? Math.random() < 0.5 : G.pat === 'high';
+          e.cd = G.rate; e.wind = false;
+          R.eshots.push({kind:'orb', x:e.x - e.w/2, y:hi ? ORB.high : ORB.low, vx:-150, r:6, dmg:e.dmg, hi, src:e.type + '-' + (hi ? 'high' : 'low')});
+          sfx('shoot');
+        }
+      } else e.wind = false;
+      break;
+    }
+    case 'swoop':
+      // 高く飛ぶ → 近づくと「！」→ 低く急降下して突っ込む（跳んで越える）
+      if (e.phase === 'fly'){
+        e.x -= (sp + scroll)*dt; e.y = e.baseY + Math.sin(e.t*4)*3;
+        if (e.x < PX + 190){ e.phase = 'tele'; e.tele = 0.5; sfx('warn'); }
+      } else if (e.phase === 'tele'){
+        e.x -= (scroll + 10)*dt; e.tele -= dt*m;
+        if (e.tele <= 0) e.phase = 'dive';
+      } else {
+        e.x -= (230*m + scroll)*dt; e.y = Math.min(GY - 8, e.y + 420*dt*m);
+      }
+      break;
+    case 'phase':
+      // ときどき透ける：透けているあいだは当たらない・狙えない
       e.x -= (sp + scroll)*dt;
+      if ((e.phT -= dt*m) <= 0){ e.solid = !e.solid; e.under = !e.solid; e.phT = e.solid ? 1.8 + Math.random() : 1.0; }
+      break;
+    case 'summon':
+      e.x -= (sp + scroll)*dt; hover();
+      if (e.x < VW - 20 && (e.sumT -= dt*m) <= 0){
+        e.sumT = 3.2;
+        for (let i = 0; i < 3; i++){ const k = mkEnemy('mini', {summon:true}); k.x = e.x - 10 + i*12; R.enemies.push(k); }
+        burst(e.x, e.y - e.h/2, G.look.c2, 6);
+      }
+      break;
+    case 'lob':
+      if (e.phase === 'walk'){
+        e.x -= (sp + scroll)*dt;
+        if ((e.throws || 0) < 2 && e.x < Math.max(VW*0.72, PX + 170)){ e.phase = 'stand'; e.cd = 0.8; }
+      } else {
+        e.cd -= dt*m; e.wind = e.cd < 0.4;
+        if (e.cd <= 0){ throwRock(e, 1.1, 105); e.throws = (e.throws || 0) + 1; e.cd = 1.6; e.wind = false; if (e.throws >= 2) e.phase = 'walk'; }
+      }
+      break;
+    default: e.x -= (sp + scroll)*dt;
   }
 }
 
@@ -624,7 +761,7 @@ export const BOMB_R = 44;   // 自爆の範囲（跳べば軽いジャンプで�
 // 避けるのが上手くても、装備の火力が足りなければ先へ進めない。HPが半分を切ると第2形態（攻撃が変わる）
 export const BOSS_RAGE = 40, BOSS_LIMIT = 70;
 // 予告の長さ（秒）
-export const BOSS_TELE = {hop:0.8, bighop:0.85, spit:0.6, rocks:0.8, boulder:0.9, orbs:0.75, summon:0.6, pillars:0.45, breath:0.7, charge:0.95, beam:0.85};
+export const BOSS_TELE = {hop:0.8, bighop:0.85, spit:0.6, rocks:0.8, boulder:0.9, orbs:0.75, summon:0.6, pillars:0.45, breath:0.7, charge:0.95, beam:0.85, volley:0.8, quake3:0.85};
 // 突進・光線・結界・最後のあがき
 export const CHARGE = {sp:340, back:180, hitH:0.8};          // 速さ・戻る速さ・当たる高さ（体の高さの割合）
 export const BEAM = {low:GY - 9, high:GY - 56, dur:0.55, th:12};   // 低い光線は足元（空中にいれば当たらない）、高い光線は頭の上（跳ぶと当たる）
@@ -681,6 +818,7 @@ function updateBoss(e, dt, realDt = dt){
     if (next === 'combo' || e.combo > 0){ e.combo--; next = pick(base.filter(a => a !== 'combo')); }
     e.next = next; e.last = [e.next, e.last[0]];
     if (e.next === 'orbs') e.orbH = Array.from({length:e.p2 ? 4 : 3}, () => Math.random() < 0.5 ? 'low' : 'high');
+    if (e.next === 'volley'){ const f = Math.random() < 0.5; e.orbH = Array.from({length:e.p2 ? 6 : 5}, (_, i) => (i % 2 === 0) === f ? 'low' : 'high'); }   // 交互に速く
     if (e.next === 'beam') e.beamH = Math.random() < 0.55 ? 'low' : 'high';
     if (e.next === 'charge' || e.next === 'beam') meet(e.next);
     e.tele = BOSS_TELE[e.next] * (e.rage ? 0.85 : 1) * (e.p2 ? 0.9 : 1) * (e.combo > 0 || e.inCombo ? 0.8 : 1);
@@ -699,7 +837,14 @@ function startAttack(e){
     case 'rocks':  for (let i = 0; i < (p2 ? 4 : 3); i++) Q.push({at:i*0.62, a:'rock'}); break;
     case 'boulder':Q.push({at:0, a:'boulder'}); break;
     case 'orbs':   e.orbH.forEach((h, i) => Q.push({at:i*(p2 ? 0.5 : 0.6), a:'orb', h})); break;
-    case 'summon': Q.push({at:0, a:'spawn', type:'ghost'}, {at:0.5, a:'spawn', type:p2 ? 'bat' : 'ghost'}); if (p2) Q.push({at:1.0, a:'spawn', type:'ghost'}); break;
+    case 'summon': {
+      const sum = BOSSES[e.boss].sum;
+      if (sum){ sum.forEach((t, i) => Q.push({at:i*0.5, a:'spawn', type:t})); if (p2) Q.push({at:sum.length*0.5, a:'spawn', type:sum[0]}); }   // 追加のボス：それぞれの手下
+      else { Q.push({at:0, a:'spawn', type:'ghost'}, {at:0.5, a:'spawn', type:p2 ? 'bat' : 'ghost'}); if (p2) Q.push({at:1.0, a:'spawn', type:'ghost'}); }
+      break;
+    }
+    case 'volley': e.orbH.forEach((h, i) => Q.push({at:i*0.42, a:'orb', h})); break;
+    case 'quake3': for (let i = 0; i < 3; i++) Q.push({at:i*0.62, a:'wave'}); break;
     case 'pillars':for (let i = 0; i < (p2 ? 3 : 2); i++) Q.push({at:i*0.7, a:'pillar'}); break;
     case 'breath': for (let i = 0; i < (p2 ? 3 : 2); i++) Q.push({at:i*0.5, a:'fire'}); break;
     case 'charge': e.charging = {phase:'go', x0:e.x, hit:false}; sfx('boss'); shake(0.2, 3); break;
@@ -747,6 +892,7 @@ function bossAct(e, q, pow){
       const m = mkEnemy(q.type, {summon:true});
       m.x = e.x - e.w/2; if (q.type === 'mini'){ m.x -= 4; }
       if (q.type === 'ghost'){ m.t = 0; m.ph = 0; m.y = ghostY(m); }   // 低い位置から出る
+      if (FOES2[q.type] && FOES2[q.type].ai === 'swoop'){ m.phase = 'tele'; m.tele = 0.6; }   // 呼ばれた急降下の敵はすぐ予告
       R.enemies.push(m); burst(m.x, m.y - m.h/2, '#c9a6ff', 5);
       break;
     }
@@ -878,7 +1024,7 @@ export function hit(e, base, noProc, skill, sCrit){
     if (crit && e.type === 'boss' && U('hawk')) mul *= 1.5;
     if (R.sk.slowT > 0) mul *= R.sk.evo.time ? 1.4 : 1.25;   // 時の砂：遅くなっている敵には装備の攻撃もよく効く
     // 盾兵：地上から正面への装備の攻撃は 20% に（空中から・踏みつけ・スキルは通る）
-    if (e.type === 'shield' && !stompHit && R.p.y > GY - 14 && e.x > PX - 4){
+    if ((e.type === 'shield' || e.guard) && !stompHit && R.p.y > GY - 14 && e.x > PX - 4){
       mul *= 0.2;
       if (!(e.guardT > R.t)){ e.guardT = R.t + 0.4; addText(e.x - 10, e.y - e.h - 2, 'ガード', '#b8c4cc', false, 0.5, true); R.fx.push({kind:'ring', x:e.x - e.w/2, y:e.y - e.h/2, r:8, t:0.15, max:0.15, c:'220,230,240'}); }
     }
@@ -908,7 +1054,7 @@ function stomp(e){
   const p = R.p;
   p.vy = -JUMP.bounce; p.jumps = 1; p.inv = Math.max(p.inv, 0.15);
   // トゲのエリート：踏むと逆にダメージ
-  if (has(e, 'spiky') || e.type === 'spikeball'){
+  if (has(e, 'spiky') || e.type === 'spikeball' || e.spiky){
     p.inv = 0; hurtPlayer(e.dmg, 'spiky');
     R.fx.push({kind:'ring', x:e.x, y:e.y - e.h, r:22, t:0.25, max:0.25, c:'255,120,120'});
     return;
@@ -942,10 +1088,11 @@ const KILL_C = {slime:'#6ccf5e', mini:'#6ccf5e', bigslime:'#5fb6e8', bat:'#8a5cc
   mole:'#8a6a4a', bomber:'#ff8a5a', ghost:'#dfe8ff', chest:'#ffd36b', frog:'#7fcf6a', cannon:'#7a7f8a', spikeball:'#a0a6ae', wisp:'#9fffc8'};
 function onKill(e){
   e.dead = true; R.kills++;
-  const g = Math.round(e.gold * (1 + e.lv*0.35) * (1 + R.st.gold/100) * R.goldMul);
+  let g = Math.round(e.gold * (1 + e.lv*0.35) * (1 + R.st.gold/100) * R.goldMul);
+  if (e.noLoot) g = 0;
   R.gold += g; SAVE.gold += g;
   const [cx,cy] = ecenter(e);
-  const xp = e.summon ? 1 : (XP[e.type] || 0) * (e.elite ? ELITE.xp : 1);
+  const xp = e.noLoot ? 0 : e.summon ? 1 : (XP[e.type] || 0) * (e.elite ? ELITE.xp : 1);
   if (xp) dropGem(cx, cy, xp);
   // 強化スキル「生命」：倒すたびに少し回復
   if (R.sk.pas.vigor) R.p.hp = Math.min(R.p.maxHp, R.p.hp + R.p.maxHp * 0.002 * R.sk.pas.vigor);
@@ -954,7 +1101,7 @@ function onKill(e){
   if (st.killHeal) R.p.hp = Math.min(R.p.maxHp, R.p.hp + st.killHeal);
   if (st.killBolt && R.kills % 8 === 0) gearBolt(1, st.finalDmg * st.killBolt/100);
   if (st.uniq.has('tempest') && R.kills % 10 === 0) gearBolt(5, st.finalDmg * 2);
-  burst(cx, cy, KILL_C[e.type] || '#b07a48', e.type==='boss' ? 30 : 8);
+  burst(cx, cy, KILL_C[e.type] || (FOES2[e.type] && FOES2[e.type].look.c) || '#b07a48', e.type==='boss' ? 30 : 8);
   R.fx.push({kind:'ring', x:cx, y:cy, r:e.w*0.9, t:0.2, max:0.2, c:'255,240,200'});
   if (R.st.uniq.has('nova')) explode(cx, cy, 55, R.st.finalDmg*0.8, true);
   // 種類ごとの倒れ方
@@ -965,7 +1112,10 @@ function onKill(e){
       R.enemies.push(k);
     }
   }
-  if (e.type === 'bomber') explode(cx, cy, 55, R.st.finalDmg*1.5, true, true);   // 先に倒すと、周りの敵を巻き込んで爆発
+  if (e.type === 'bomber' || e.boom) explode(cx, cy, 55, R.st.finalDmg*1.5, true, true);   // 先に倒すと、周りの敵を巻き込んで爆発
+  if (FOES2[e.type] && FOES2[e.type].split){   // 分かれる（雲の子 → ちび雲2つ）
+    for (const dx of [-12, 14]){ const k = mkEnemy(FOES2[e.type].split); k.x = e.x + dx; k.gold = 1; k.kid = true; R.enemies.push(k); }
+  }
   if (e.type === 'chest'){
     feedLine(`<span style="color:#ffd36b">宝箱：+${fmt(g)}G</span>`);
     if (Math.random() < 0.35 * (1 + R.st.drop/100) * R.lootMul) drop(e, e.lv, 1);
