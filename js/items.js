@@ -149,7 +149,7 @@ export function computeStats(eq){
   s.dps = s.finalDmg * s.rate * (1 + s.critC*(s.critM-1)) * (1 + s.burn/100*1.2) * (1 + s.chain/100*1.2)
         * (1 + (shots-1)*0.7) * typeF * (1 + s.rangeP/200) * uniqF
         * (1 + s.airAtk/100*0.2) * (1 + s.lowHpAspd/100*0.1) * (1 + s.firstHit/100*0.2) * (1 + s.killBolt/100*0.06);
-  // ボス火力：ボスはスキルが効かないので装備で倒す。ボス戦の目安
+  // ボス火力：装備だけでボスに与える火力（スキルの分は含まない）。ボス戦の目安
   s.bossDps = s.dps * (1 + s.bossDmg/100) * (U('hawk') ? 1 + s.critC*0.5 : 1);
   const surv = Math.sqrt(s.hp/100) * (1 + s.defRed) / (1 - s.dodgeC*0.8)
     * (1 + s.regen/20 + s.leech/20 + s.killHeal/20) * (U('revive') ? 1.2 : 1) * (1 + Math.min(0.15, s.thorns/3000)) * (s.invMul > 1 ? 1.1 : 1);

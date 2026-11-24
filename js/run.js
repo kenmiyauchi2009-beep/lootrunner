@@ -178,14 +178,17 @@ export const foeHp = () => hpScale(blv()) * R.hpMul;
 export const BOSS_GROW = 1.22;
 // ボスの攻撃力の伸び（雑魚より緩い。ボスの攻撃は種類が多く何発も続くので、1発で倒れないように）
 export const BOSS_DMG_GROW = 1.12;
-// スキルの効き方：投石兵・盾兵には効きにくく、ボスには効かない（ボスは装備＝武器と踏みつけで倒す）
-export const SKILL_RES = {thrower:0.35, shield:0.6, boss:0};
+// スキルの効き方：投石兵・盾兵には効きにくい。ボスには10%だけ効く（下の hit() でボスのLvの差も打ち消す）。
+// スキルは数が多く当たるので、これでボスに与えるダメージの約6割がスキル・約4割が装備になる（シミュレーションで確認）
+export const SKILL_RES = {thrower:0.35, shield:0.6, boss:0.1};
+// ボスのHPの倍率（スキルが効くようにした分の調整用）
+export const BOSS_TUNE = {hp:1};
 const ELITE = {hp:3, dmg:1.3, size:1.25, gold:5, xp:5, chance:0.012, grow:1/150000};   // 1回の出撃で5体くらい
 
 // o.rng：乱数（コースの敵は R.cr を使い、日替わりで同じ並びになるようにする）
 export function mkEnemy(type, o = {}){
   const lv = elv(), bl = blv(), B = EB[type], rng = o.rng || Math.random;
-  const hm = (type === 'boss' ? Math.pow(BOSS_GROW, bl - 1) : hpScale(bl)) * R.hpMul;
+  const hm = (type === 'boss' ? Math.pow(BOSS_GROW, bl - 1) * BOSS_TUNE.hp : hpScale(bl)) * R.hpMul;
   const dm = (type === 'boss' ? Math.pow(BOSS_DMG_GROW, bl - 1) : dmgScale(bl)) * R.dmgMul;
   const e = {id:++R.eid, type, lv, x:VW+30, y:GY, hp:B.hp*hm, maxHp:B.hp*hm, dmg:B.dmg*dm, w:B.w, h:B.h, gold:B.gold, scale:1,
     t:rng()*6, burnT:0, burnDps:0, burnAcc:0, burnTick:0.5, phase:'walk', throws:0, cd:1.6, tele:0, next:null, rockQ:0, rockT:0, hitFlash:0, wind:false, vel:0};
@@ -744,10 +747,14 @@ export function hit(e, base, noProc, skill, sCrit){
     }
   }
   if (skill && R.sk.slowT > 0) mul *= R.sk.evo.time ? 1.4 : 1.25;
+  // ボスへのスキル：スキルの威力は雑魚のHP（Lvごとに×1.3）に合わせて伸びるが、ボスのHPは×1.22でしか伸びない。
+  // そのままだと奥のボスほどスキルで一瞬で溶けるので、最初のボス（敵Lv6）を基準にその差を打ち消す
+  if (skill && e.type === 'boss') mul *= Math.pow(BOSS_GROW / GROW.hp, e.lv - R.lvOff - 6);
   const d = base * (crit ? st.critM : 1) * res * mul;
   e.hp -= d; e.hitFlash = 0.08;
+  if (e.type === 'boss'){ if (skill) R.bossDmgSkill = (R.bossDmgSkill || 0) + d; else R.bossDmgGear = (R.bossDmgGear || 0) + d; }   // 記録用：ボスに与えたダメージの内訳
   if (e.type !== 'boss' && e.type !== 'chest') e.x += 3;   // 軽いノックバック
-  if (SAVE.settings.dmgNum) addText(e.x + rnd(-6,6), e.y - e.h - 4, Math.round(d), crit || sCrit ? '#ffe14d' : !skill ? '#ffffff' : res < 1 ? '#8e9aa3' : '#d8e4ff', crit, 0.7, skill && !sCrit);
+  if (SAVE.settings.dmgNum) addText(e.x + rnd(-6,6), e.y - e.h - 4, Math.round(d), crit || sCrit ? '#ffe14d' : !skill ? '#ffffff' : res < 1 && e.type !== 'boss' ? '#8e9aa3' : '#d8e4ff', crit, 0.7, skill && !sCrit);
   if (crit){ shake(0.08, 2); sfx('crit'); } else if (!skill) sfx('hit');
   if (st.leech > 0) R.p.hp = Math.min(R.p.maxHp, R.p.hp + d*st.leech/100);
   if (!noProc){
@@ -1002,7 +1009,7 @@ function endRun(retreat, reason){
   const boss = R.boss && BOSSES[R.boss.boss];
   const title = (R.daily ? '日替わり：' : '') + (retreat ? '撤退した' : reason === 'clear' ? `踏破！${R.diff > 1 ? `（難易度${R.diff}）` : ''}` : reason === 'boss' ? `${boss ? boss.n : 'ボス'}を倒しきれなかった…` : '力尽きた…');
   let note = '';
-  if (reason === 'boss') note = 'ボスは70秒以内に倒す必要がある。ボスにはスキルが効かないので、装備（武器）を鍛えよう。';
+  if (reason === 'boss') note = 'ボスは70秒以内に倒す必要がある。装備（武器）を鍛えるか、スキルを育てよう（スキルはボスにも効くが、雑魚より効きにくい）。';
   if (reason === 'clear') note = (R.clearNew ? `<b style="color:var(--accent)">難易度${R.diff + 1} が解放された！</b> 敵は強くなるが、アイテムLvの上限と付与効果の階級の上限が上がる。<br>` : '')
     + (R.cpRun ? '途中から出撃したので、踏破報酬はなし。' : '0mからの踏破報酬：エピック以上の装備を1つ。');
   // 日替わりの節目の報酬・新しく達成した実績

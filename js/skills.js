@@ -1,6 +1,6 @@
 // 出撃中のスキル。経験値でレベルが上がるたびに3択で選び、出撃が終わると消える。
 // 役割の分担：
-//   スキル＝群れを倒す力。威力は装備と関係なく、敵のレベルに合わせて伸びる。投石兵には効きにくく、ボスには効かない
+//   スキル＝群れを倒す力。威力は装備と関係なく、敵のレベルに合わせて伸びる。投石兵には効きにくい。ボスにも効くが、雑魚より効きにくい
 //           （障壁・時の砂のような補助スキルはボス戦でも役に立つ）
 //   装備　＝本体の強さ。武器の攻撃・踏みつけ・会心・HP・防御。大きい敵を倒し、深いところで耐えるのに必要
 // lock：訓練所のこのレベルで解放される（0＝最初から）
@@ -238,7 +238,7 @@ export function updateSkills(dt, scroll){
     m.x -= scroll*dt; m.t -= dt; if (m.arm > 0) m.arm -= dt;
     if (m.x < -20 || m.t <= 0){ m.dead = true; continue; }
     if (m.arm > 0) continue;
-    if (R.enemies.some(e => alive(e) && onGround(e) && e.type !== 'boss' && Math.abs(e.x - m.x) < e.w/2 + 6)){
+    if (R.enemies.some(e => alive(e) && onGround(e) && Math.abs(e.x - m.x) < e.w/2 + 6)){
       m.dead = true;
       R.fx.push({kind:'boom', x:m.x, y:GY - 6, r:m.r, t:0.3, max:0.3, c:'#ff9d6b'});
       sExplode(m.x, GY - 8, m.r, m.dmg); shake(0.08, 2); sfx('stomp');
@@ -253,7 +253,7 @@ function targets(n){
   for (let i = list.length - 1; i > 0; i--){ const j = Math.floor(Math.random()*(i+1)); [list[i], list[j]] = [list[j], list[i]]; }
   return list.slice(0, n);
 }
-const anyFoe = () => R.enemies.some(e => alive(e) && e.type !== 'boss' && e.x < VW + 10);
+const anyFoe = () => R.enemies.some(e => alive(e) && e.x < VW + 10);
 const FIRE = {
   bolt(D, M){
     const ev = R.sk.evo.bolt, L = lvOf('bolt');
@@ -463,7 +463,7 @@ export function openLevelUp(keep){
   R.levelup = true; R.p.hold = false;
   if (!keep) sfx('lvup');
   dialog(`<h2>レベルアップ！</h2><p class="lvsub">Lv ${S.lv - S.pending + 1}${S.pending > 1 ? `（あと${S.pending - 1}回）` : ''} ・ 1つ選ぶ<br>
-    <small>スキルは群れに強い。投石兵には効きにくく、ボスには効かない（ボスは装備の武器で倒す）</small></p>
+    <small>スキルは群れに強い。投石兵には効きにくい。ボスにも効くが雑魚より効きにくいので、装備の武器と一緒に削る</small></p>
     <div class="lvcards ${keep ? '' : 'arming'}">${S.choices.map(card).join('')}</div>
     ${S.rerolls > 0 ? `<div class="btns"><button id="lvReroll">引き直す（残り${S.rerolls}回）</button></div>` : ''}`);
   const box = $('dcard').querySelector('.lvcards');
