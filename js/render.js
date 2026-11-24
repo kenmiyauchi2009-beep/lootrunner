@@ -4,7 +4,7 @@ import { RAR, DROP_FX, ELITE_MODS, BOSSES, ZONES } from './data.js';
 import { drawCape, drawHelmet, drawTrim } from './hero.js';
 import { drawSkillIcon } from './skillart.js';
 import { SAVE } from './save.js';
-import { GY, PX, R, ctx, VW, SCALE, DPR, OY, VTOP, VBOT, zone, zoneIdx, elv, BOSS_LIMIT, ORB, PILLAR, VENT, ventState, BEAM, CHARGE, WARD } from './run.js';
+import { GY, PX, R, ctx, VW, SCALE, DPR, OY, VTOP, VBOT, zone, zoneIdx, zoneAt, bossName, bossTotal, elv, BOSS_LIMIT, ORB, PILLAR, VENT, ventState, BEAM, CHARGE, WARD } from './run.js';
 import { ACTIVES, PASSIVES } from './skills.js';
 
 // 見た目だけに使う乱数（ゲームの乱数 Math.random を消費しない）
@@ -88,6 +88,45 @@ function drawDeco(Z, a){
     for (let i = 0; i < 5; i++){ const q = (t*0.12 + i/5) % 1; ctx.globalAlpha = a*0.35*(1 - q); circ(vx + q*30 + Math.sin(q*6 + i)*6, 66 - q*80, 8 + q*18, '#3a2424'); }
     for (let i = 0; i < 10; i++){ const q = (t*0.4 + i/10) % 1; ctx.globalAlpha = a*(1 - q); ctx.fillStyle = '#ffb36a'; ctx.fillRect(vx + Math.sin(i*7.1)*20 + q*14, 72 - q*90, 1.6, 1.6); }
   }
+  else if (d === 'crystal'){   // 結晶の洞窟：天井から下がる結晶・光る粒
+    ctx.fillStyle = '#120a24';
+    ctx.beginPath(); ctx.moveTo(-10, VTOP - 10);
+    for (let x = -10; x <= VW + 20; x += 18){ const wx = x + R.px*0.04; ctx.lineTo(x, VTOP + 18 + 14*Math.abs(Math.sin(wx*0.05)) + 8*Math.sin(wx*0.13)); }
+    ctx.lineTo(VW + 20, VTOP - 10); ctx.fill();
+    for (let i = 0; i < 7; i++){
+      const x = wrapX(i*83 - R.px*0.06, VW + 80) - 40, len = 26 + (i*13) % 30, c = i % 2 ? '#8a6cff' : '#c8a6ff';
+      ctx.fillStyle = c; ctx.globalAlpha = a*0.8; ctx.beginPath(); ctx.moveTo(x - 6, VTOP + 20); ctx.lineTo(x, VTOP + 20 + len); ctx.lineTo(x + 6, VTOP + 20); ctx.fill();
+      glow(x, VTOP + 20 + len, 10, c, 0.4 + 0.2*Math.sin(t*2 + i));
+    }
+    ctx.globalAlpha = a;
+    for (let i = 0; i < 16; i++){ const x = wrapX(i*47 - R.px*0.02, VW + 20) - 10, y = VTOP + 60 + (i*37) % 110; glow(x, y + Math.sin(t + i)*4, 3, '#d8c8ff', 0.5); }
+  } else if (d === 'ruins'){   // 古代の遺跡：大きな夕日と、崩れた柱の影
+    glow(VW*0.66, 120, 60, '#ffe2a0', 0.8); circ(VW*0.66, 120, 22, '#fff0c8');
+    ctx.fillStyle = 'rgba(120,80,40,.35)';
+    for (let i = 0; i < 5; i++){ const x = wrapX(i*130 - R.px*0.05, VW + 150) - 60, hgt = 50 + (i*29) % 40; ctx.fillRect(x, 160 - hgt, 14, hgt); ctx.fillRect(x - 4, 160 - hgt - 6, 22, 6); }
+  } else if (d === 'sky'){   // 天空の島：浮かぶ島と、下に広がる雲
+    for (let i = 0; i < 3; i++){
+      const x = wrapX(i*220 - R.px*0.04, VW + 260) - 120, y = VTOP + 70 + i*28 + Math.sin(t*0.6 + i)*4;
+      ctx.fillStyle = '#8fc27a'; ctx.beginPath(); ctx.ellipse(x, y, 44, 9, 0, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#a58a6a'; ctx.beginPath(); ctx.moveTo(x - 40, y); ctx.lineTo(x, y + 34); ctx.lineTo(x + 40, y); ctx.fill();
+      circ(x - 12, y - 10, 8, '#6aa760'); circ(x + 10, y - 12, 10, '#5f9d58');
+    }
+  } else if (d === 'abyss'){   // 深淵：暗闇に浮かぶ赤い目
+    for (let i = 0; i < 6; i++){
+      const x = wrapX(i*111 - R.px*0.03, VW + 120) - 60, y = VTOP + 40 + (i*53) % 120, open = Math.max(0, Math.sin(t*0.8 + i*1.7));
+      if (open < 0.1) continue;
+      ctx.globalAlpha = a*open; ctx.fillStyle = '#ff3a5a';
+      ctx.beginPath(); ctx.ellipse(x, y, 5, 2.2*open, 0, 0, Math.PI*2); ctx.ellipse(x + 14, y, 5, 2.2*open, 0, 0, Math.PI*2); ctx.fill();
+      glow(x + 7, y, 16, '#ff3a5a', 0.35*open);
+    }
+    ctx.globalAlpha = a;
+  } else if (d === 'stars'){   // 星の海：星雲と、たくさんの星
+    glow(VW*0.3, VTOP + 70, 90, '#6a4ac8', 0.35); glow(VW*0.75, VTOP + 110, 70, '#c84a9a', 0.25);
+    ctx.fillStyle = '#fff';
+    for (let i = 0; i < 50; i++){ const x = wrapX(i*37.3 - R.px*0.008, VW + 20) - 10, y = VTOP + 5 + (i*29.7) % 170; ctx.globalAlpha = a*(0.3 + 0.5*Math.abs(Math.sin(t*1.5 + i))); ctx.fillRect(x, y, i % 7 ? 1.3 : 2.2, i % 7 ? 1.3 : 2.2); }
+    ctx.globalAlpha = a;
+    const sx = wrapX(-R.t*120, VW + 300) - 100; ctx.strokeStyle = 'rgba(255,255,255,.6)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(sx, VTOP + 30); ctx.lineTo(sx + 30, VTOP + 42); ctx.stroke();
+  }
   ctx.globalAlpha = a;
 }
 // 遠い丘と近い丘のあいだの景色：木・岩山とサボテン・針葉樹・岩
@@ -132,6 +171,31 @@ function drawMid(Z){
     ctx.fillStyle = '#ff7a2a';
     for (let i = 0; i < 4; i++){ const x = wrapX(i*150 + 40 - off, VW + 160) - 80; ctx.globalAlpha = bgA*(0.5 + 0.3*Math.sin(R.t*4 + i)); ctx.fillRect(x - 10, 203, 20, 2); }
     ctx.globalAlpha = bgA;
+  } else if (d === 'crystal'){   // 地面から生える結晶
+    for (let i = 0; i < 6; i++){
+      const x = wrapX(i*101 - off, VW + 120) - 60, hgt = 20 + (i*17) % 22, c = i % 2 ? '#7a5ae0' : '#a98aff';
+      ctx.fillStyle = c; ctx.beginPath(); ctx.moveTo(x - 8, 204); ctx.lineTo(x - 3, 204 - hgt); ctx.lineTo(x + 3, 204 - hgt - 6); ctx.lineTo(x + 8, 204); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,.25)'; ctx.beginPath(); ctx.moveTo(x - 3, 204 - hgt); ctx.lineTo(x + 3, 204 - hgt - 6); ctx.lineTo(x, 204); ctx.fill();
+    }
+  } else if (d === 'ruins'){   // 石の柱とアーチ
+    ctx.fillStyle = '#c8a878';
+    for (let i = 0; i < 4; i++){
+      const x = wrapX(i*160 - off, VW + 200) - 100, broken = i % 2;
+      ctx.fillRect(x, 160 + (broken ? 18 : 0), 12, 44 - (broken ? 18 : 0)); ctx.fillRect(x + 40, 160, 12, 44);
+      if (!broken){ ctx.fillRect(x - 4, 154, 60, 8); }
+      ctx.fillStyle = 'rgba(0,0,0,.12)'; ctx.fillRect(x + 8, 160, 4, 44); ctx.fillStyle = '#c8a878';
+    }
+  } else if (d === 'sky'){   // 雲の海
+    ctx.fillStyle = 'rgba(255,255,255,.85)';
+    for (let i = 0; i < 8; i++){ const x = wrapX(i*70 - off*0.8, VW + 100) - 50; ctx.beginPath(); ctx.ellipse(x, 200 + (i % 3)*3, 36, 12, 0, 0, Math.PI*2); ctx.fill(); }
+  } else if (d === 'abyss'){   // ねじれた枯れ木
+    ctx.strokeStyle = '#2a1a2e'; ctx.lineWidth = 3;
+    for (let i = 0; i < 5; i++){
+      const x = wrapX(i*117 - off, VW + 140) - 70;
+      ctx.beginPath(); ctx.moveTo(x, 205); ctx.quadraticCurveTo(x - 6, 180, x + 4, 160); ctx.moveTo(x + 1, 178); ctx.lineTo(x + 14, 168); ctx.moveTo(x - 2, 188); ctx.lineTo(x - 14, 176); ctx.stroke();
+    }
+  } else if (d === 'stars'){   // 浮かぶ光の欠片
+    for (let i = 0; i < 8; i++){ const x = wrapX(i*67 - off, VW + 80) - 40, y = 185 + Math.sin(R.t*1.5 + i)*8; glow(x, y, 6, i % 2 ? '#ffe9a8' : '#a8c8ff', 0.6); }
   }
 }
 
@@ -634,6 +698,50 @@ function drawEnemy(e){
       glow(x, y - h/2, 14, '#ffd36b', 0.25 + 0.15*Math.sin(R.t*4));
       break;
     }
+    case 'frog': {
+      // 跳ねガエル：跳ぶ前に少し縮む
+      const sit = e.y >= GY && e.hopT < 0.25 ? 0.85 : 1, by = y;
+      ctx.fillStyle = F || '#5fae4e'; ctx.beginPath(); ctx.ellipse(x, by - h*0.45*sit, w/2, h*0.48*sit, 0, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = F || '#8fd47a'; ctx.beginPath(); ctx.ellipse(x - 2, by - h*0.3*sit, w*0.32, h*0.25*sit, 0, 0, Math.PI*2); ctx.fill();
+      circ(x - 6, by - h*0.9*sit, 3.6, F || '#5fae4e'); circ(x + 3, by - h*0.9*sit, 3.6, F || '#5fae4e');
+      circ(x - 6, by - h*0.92*sit, 2, '#fff'); circ(x - 6.5, by - h*0.92*sit, 1, '#123');
+      circ(x + 3, by - h*0.92*sit, 2, '#fff'); circ(x + 2.5, by - h*0.92*sit, 1, '#123');
+      if (e.y < GY){ ctx.strokeStyle = F || '#4a8a3c'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(x + 6, by - 4); ctx.lineTo(x + 12, by + 3); ctx.stroke(); }
+      break;
+    }
+    case 'cannon': {
+      // 砲台：光ったら撃つ。次の弾の高さに線を出す（赤＝低い・青＝高い）
+      rr(x - w/2, y - 12, w, 12, 3, F || '#5a5f68');
+      const ang = e.nextHi ? -0.45 : -0.05;
+      ctx.save(); ctx.translate(x, y - 12); ctx.rotate(ang); rr(-20, -5, 22, 10, 3, F || '#7a7f8a'); ctx.restore();
+      circ(x, y - 12, 7, F || '#8a909a');
+      if (e.wind){
+        bang(x, y - h - 10, 16);
+        const yy = e.nextHi ? ORB.high : ORB.low, c = e.nextHi ? '#7ab8ff' : '#ff6a9a';
+        ctx.strokeStyle = c; ctx.globalAlpha = 0.7; ctx.lineWidth = 2; ctx.setLineDash([6, 5]);
+        ctx.beginPath(); ctx.moveTo(PX - 20, yy); ctx.lineTo(x - w/2, yy); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+        glow(x - 18, y - 14 + (e.nextHi ? -8 : 0), 10, c, 0.8);
+      }
+      break;
+    }
+    case 'spikeball': {
+      const cx = x, cy = y - h/2, r = w/2 - 2;
+      ctx.save(); ctx.translate(cx, cy); ctx.rotate(-(e.rot || 0));
+      ctx.fillStyle = F || '#c9ced6';
+      for (let k = 0; k < 8; k++){ const a = k/8*Math.PI*2; ctx.beginPath(); ctx.moveTo(Math.cos(a - 0.25)*r, Math.sin(a - 0.25)*r); ctx.lineTo(Math.cos(a)*(r + 7), Math.sin(a)*(r + 7)); ctx.lineTo(Math.cos(a + 0.25)*r, Math.sin(a + 0.25)*r); ctx.fill(); }
+      circ(0, 0, r, F || '#7a808a'); circ(-3, -3, r*0.35, 'rgba(255,255,255,.35)');
+      ctx.restore();
+      break;
+    }
+    case 'wisp': {
+      const cy = y - h/2, pulse = 0.8 + 0.2*Math.sin(e.t*5);
+      glow(x, cy, 20*pulse, '#9fffc8', 0.6);
+      circ(x, cy, 7*pulse, F || '#dfffee');
+      ctx.fillStyle = F || '#7fe8a8'; ctx.beginPath(); ctx.moveTo(x - 6, cy + 3); ctx.quadraticCurveTo(x, cy + 16 + Math.sin(e.t*7)*3, x + 6, cy + 3); ctx.fill();
+      circ(x - 2.5, cy - 1, 1.3, '#1a4030'); circ(x + 2, cy - 1, 1.3, '#1a4030');
+      if (e.healT < 0.5){ ctx.strokeStyle = 'rgba(140,255,190,.6)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, cy, 12 + (0.5 - e.healT)*20, 0, Math.PI*2); ctx.stroke(); }
+      break;
+    }
     case 'boss': drawBoss(e, F); break;
     default:
       // 絵がまだない種類でも見えなくならないように（気づけるよう派手な色）
@@ -661,6 +769,7 @@ const has = (e, m) => e.elite && e.elite.includes(m);
 
 // ボス4体
 function drawBoss(e, F){
+  if (e.aura) glow(e.x, e.y - e.h/2, Math.max(e.w, e.h)*1.1, e.aura, 0.4 + 0.15*Math.sin(R.t*3));   // 深層のボスはエリアの光をまとう
   const {x, y, w, h} = e, tele = e.tele > 0 && Math.sin(R.t*30) > 0;
   const lift = e.tele > 0 && (e.next === 'hop' || e.next === 'bighop') ? -8 * Math.min(1, (0.85 - e.tele) * 3) : 0;
   const hot = e.rage || e.p2;
@@ -731,7 +840,7 @@ function drawHUD(H){
   ctx.textAlign = 'center'; ctx.font = 'bold 16px -apple-system, sans-serif';
   ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.45)';
   const b = R.boss;
-  if (b){ ctx.font = 'bold 13px -apple-system, sans-serif'; outlined(BOSSES[b.boss].n, VW/2, 22, b.p2 ? '#ff8a8a' : '#ffd0c8'); }
+  if (b){ ctx.font = 'bold 13px -apple-system, sans-serif'; outlined(bossName(b), VW/2, 22, b.p2 ? '#ff8a8a' : '#ffd0c8'); }
   else outlined(`${Math.floor(R.dist)} m`, VW/2, 22, '#fff');
   ctx.font = '10px -apple-system, sans-serif';
   if (b){
@@ -747,11 +856,11 @@ function drawHUD(H){
   } else if (R.clearT > 0){
     outlined('踏破！', VW/2, 36, '#ffd36b');
   } else {
-    outlined(`ボス${zoneIdx() + 1}/4まで ${Math.ceil(R.nextBoss - R.dist)}m ・ 敵Lv${elv()}`, VW/2, 36, '#fff');
+    outlined(`ボス${R.nextBoss/500}/${bossTotal()}まで ${Math.ceil(R.nextBoss - R.dist)}m ・ 敵Lv${elv()}`, VW/2, 36, '#fff');
   }
   ctx.textAlign = 'right'; ctx.font = 'bold 12px -apple-system, sans-serif';
   outlined(`${fmt(R.gold)} G`, VW - 10, 20, '#ffd36b');
-  if (R.daily || R.diff > 1){ ctx.font = 'bold 9px -apple-system, sans-serif'; outlined(`${R.daily ? '日替わり ' : ''}${R.diff > 1 ? `難易度${R.diff}` : ''}`, VW - 10, 34, R.daily ? '#7fe8ff' : '#ff9a7a'); }
+  if (R.daily || R.deep || R.diff > 1){ ctx.font = 'bold 9px -apple-system, sans-serif'; outlined(`${R.daily ? '日替わり ' : ''}${R.deep ? '深層' : ''}${R.deep || R.diff > 1 ? `難易度${R.diff}` : ''}`, VW - 10, 34, R.daily ? '#7fe8ff' : R.deep ? '#c9a6ff' : '#ff9a7a'); }
   // 経験値バー（画面の一番上）とレベル
   const S = R.sk;
   rr(0, 0, VW, 4, 0, 'rgba(0,0,0,.4)');
@@ -824,7 +933,7 @@ function drawBossKill(f){
 function drawZoneCard(z){
   const age = z.max - z.t - (z.delay || 0);
   if (age < 0) return;
-  const dur = z.max - (z.delay || 0), Z = ZONES[R.zoneOrder ? R.zoneOrder[z.i] : z.i];
+  const dur = z.max - (z.delay || 0), Z = zoneAt(z.i);
   const inT = Math.min(1, age/0.35), outT = Math.max(0, (age - (dur - 0.4))/0.4);
   const ease = q => 1 - Math.pow(1 - q, 3);
   const dx = (1 - ease(inT))*VW - ease(outT)*VW;
@@ -834,7 +943,7 @@ function drawZoneCard(z){
   ctx.globalAlpha = 1; ctx.fillStyle = Z.sky[0]; ctx.fillRect(0, y, VW, 2); ctx.fillRect(0, y + h - 2, VW, 2);
   ctx.textAlign = 'center';
   ctx.font = 'bold 9px -apple-system, sans-serif'; ctx.fillStyle = Z.sky[1];
-  ctx.fillText(`エリア ${z.i + 1}${z.sub ? ' ・ ' + z.sub : ''}`, VW/2, y + 14);
+  ctx.fillText(`${R.deep ? '深層 ' : ''}エリア ${z.i + 1}${z.sub ? ' ・ ' + z.sub : ''}`, VW/2, y + 14);
   ctx.font = '800 20px -apple-system, sans-serif'; ctx.fillStyle = '#fff';
   ctx.fillText(Z.n, VW/2, y + 37);
   ctx.restore();

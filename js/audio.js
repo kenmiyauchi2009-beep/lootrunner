@@ -151,6 +151,12 @@ const SONGS = {
   zone2:{bpm:96,  root:57, sc:MIN,  prog:[0, 5, 2, 6], lead:'sine',     lv:0.06, bass:'sine',     bv:0.12, arp:'triangle', av:0.03,  drums:'soft', seed:47, rest:0.4, echo:1},
   zone3:{bpm:142, root:52, sc:PHR,  prog:[0, 1, 0, 6], lead:'sawtooth', lv:0.022, bass:'sawtooth', bv:0.07, arp:'square',  av:0.015, drums:'rock', seed:59, rest:0.3},
   boss: {bpm:152, root:48, sc:HMIN, prog:[0, 0, 5, 4], lead:'square',   lv:0.028, bass:'sawtooth', bv:0.08, arp:'square',   av:0.016, drums:'rock', seed:71, rest:0.2},
+  // 深層（結晶の洞窟・古代の遺跡・天空の島・深淵・星の海）
+  deep0:{bpm:100, root:57, sc:DOR,  prog:[0, 3, 5, 4], lead:'sine',     lv:0.06, bass:'triangle', bv:0.11, arp:'sine',     av:0.035, drums:'soft', seed:83, rest:0.35, echo:1},
+  deep1:{bpm:118, root:50, sc:HMIN, prog:[0, 5, 6, 4], lead:'triangle', lv:0.05, bass:'triangle', bv:0.12, arp:'square',   av:0.018, drums:'trot', seed:97, rest:0.3},
+  deep2:{bpm:132, root:62, sc:MAJ,  prog:[0, 3, 4, 5], lead:'square',   lv:0.028, bass:'triangle', bv:0.11, arp:'triangle', av:0.03, drums:'pop',  seed:101, rest:0.25},
+  deep3:{bpm:90,  root:45, sc:PHR,  prog:[0, 1, 0, 5], lead:'sawtooth', lv:0.02, bass:'sawtooth', bv:0.07, arp:'sine',     av:0.03, drums:'soft', seed:113, rest:0.45, echo:1},
+  deep4:{bpm:124, root:55, sc:MIN,  prog:[0, 5, 2, 6], lead:'sine',     lv:0.06, bass:'sine',     bv:0.12, arp:'triangle', av:0.035, drums:'pop',  seed:127, rest:0.3, echo:1},
 };
 const DRUMS = {   // 16分の位置：k=バスドラム s=スネア h=ハイハット
   soft:{k:[0, 8],          s:[],       h:[4, 12]},

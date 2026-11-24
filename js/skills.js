@@ -64,7 +64,7 @@ export const MIN_ON = 6;
 const MAX_SLOTS = 4;
 export const xpNeed = lv => Math.round(5 + lv*3 + Math.pow(lv, 1.8));
 // 敵ごとの経験値
-export const XP = {mini:1, slime:2, bat:2, thrower:4, shield:3, boar:3, bigslime:3, mole:3, bomber:2, ghost:2, chest:0, boss:30};
+export const XP = {mini:1, slime:2, bat:2, thrower:4, shield:3, boar:3, bigslime:3, mole:3, bomber:2, ghost:2, chest:0, boss:30, frog:3, cannon:4, spikeball:3, wisp:4};
 
 export function initSkills(){
   const T = trainPerks();

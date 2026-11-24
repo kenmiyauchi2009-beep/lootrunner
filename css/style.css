@@ -349,3 +349,9 @@ body.left .runbar{flex-direction:row-reverse}
 /* 横持ちの冒険：拾った装備の知らせに暗い下地をつけて読みやすく */
 #feed.land div{display:table;max-width:100%;background:rgba(8,12,16,.78);border-radius:6px;padding:1px 7px;margin-bottom:2px;text-shadow:none}
 #feed.land span[style*="muted"]{color:#b9c7cc!important}
+
+/* 深層：通常／深層の切り替えと、難易度の −＋ */
+.seg.layer button.on{background:#7d5cc0;border-color:#7d5cc0;color:#fff}
+.stepper{display:flex;align-items:center;justify-content:center;gap:12px;margin:8px 0 2px}
+.stepper button{width:48px;font-size:22px;font-weight:800;padding:0}
+.stepper b{min-width:140px;text-align:center;font-size:15px}

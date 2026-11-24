@@ -123,6 +123,35 @@ export const ZONES = [
    foes:{bomber:[24,0], thrower:[16,0], boar:[18,0], shield:[16,0], ghost:[12,0], bat:[10,0]}, boss:'dragon', gim:'lava', gn:'火柱', deco:'volcano'},
 ];
 export const CLEAR_DIST = 2000;   // 4体目のボスの位置。倒すと踏破
+
+// ---------- 深層 ----------
+// 通常の難易度5を踏破すると開く。1回の出撃は10000m（ボス20体）。難易度は1から始まり、上限なし（踏破するたびに次が開く）。
+// 深層の難易度 d の強さは、通常の難易度 5+d と同じ（敵Lv・HP・攻撃・付与効果の階級）。
+// 距離が5倍なので、敵Lvの伸び方を5分の1にする（10000m 走って、通常の2000m と同じだけ強くなる）。
+// DEEP_LV：深層は敵Lvを最初から4つ上げておく（通常の難易度5を踏破した人には、0m からそれなりに手ごたえがあるように）
+export const DEEP_LEN = 10000, DEEP_STRETCH = 5, DEEP_LV = 4;
+export const deepInfo = d => diffInfo(5 + d);
+// 深層のエリア（2000m ごと・ボス4体ずつ）。bp：ボスの名前の前につく言葉、bc：ボスのまとう光の色
+export const DEEP_ZONES = [
+  {n:'結晶の洞窟', sky:['#1a1030','#3a2a60'], far:'#2c2048', near:'#3a2c5e', cloud:'rgba(200,180,255,.12)', ground:'#3a3350', dirt:'#2a2440',
+   foes:{slime:[10,0], bat:[14,0], frog:[18,0], cannon:[12,60], bigslime:[12,0], mole:[10,0], wisp:[8,200]},
+   bosses:['kingslime','golem','witch','dragon'], gim:'chest', gn:'宝箱', deco:'crystal', bp:'結晶の', bc:'#b48cff'},
+  {n:'古代の遺跡', sky:['#c9a25a','#f3dca0'], far:'#b08a5a', near:'#8c6a44', ground:'#7a6040', dirt:'#5f4a30',
+   foes:{thrower:[14,0], shield:[16,0], cannon:[16,0], spikeball:[14,0], boar:[12,0], wisp:[8,0]},
+   bosses:['golem','kingslime','dragon','witch'], gim:'sand', gn:'流砂', deco:'ruins', bp:'遺跡の', bc:'#ffd36b'},
+  {n:'天空の島', sky:['#5fb0f0','#e6f6ff'], far:'#cfe8f5', near:'#9fd0a8', cloud:'rgba(255,255,255,.75)', ground:'#6fb05a', dirt:'#5a8f48',
+   foes:{bat:[20,0], ghost:[14,0], frog:[16,0], wisp:[10,0], bomber:[12,0], spikeball:[10,0]},
+   bosses:['witch','dragon','kingslime','golem'], gim:'fog', gn:'雲', deco:'sky', bp:'天空の', bc:'#9fe3ff'},
+  {n:'深淵',       sky:['#05050a','#1a0a1a'], far:'#140a18', near:'#1e0e22', cloud:'rgba(120,40,80,.15)', ground:'#1c1420', dirt:'#120c16',
+   foes:{ghost:[18,0], bomber:[16,0], spikeball:[16,0], wisp:[10,0], shield:[12,0], mole:[12,0], cannon:[10,0]},
+   bosses:['dragon','witch','golem','kingslime'], gim:'fog', gn:'霧', deco:'abyss', bp:'深淵の', bc:'#ff4a6a'},
+  {n:'星の海',     sky:['#0a0f2a','#2a1f5a'], far:'#1a1a40', near:'#25205a', cloud:'rgba(180,160,255,.15)', ground:'#2a2650', dirt:'#1c1a3a',
+   foes:{frog:[14,0], cannon:[12,0], spikeball:[14,0], wisp:[10,0], ghost:[12,0], bomber:[10,0], boar:[10,0], bat:[10,0]},
+   bosses:['kingslime','golem','witch','dragon'], gim:'lava', gn:'星の噴き出し', deco:'stars', bp:'星海の', bc:'#ffe9a8'},
+];
+// 通常の難易度3から混ざる新しい敵（[重み, 出始める距離（エリアの頭から）]）
+export const NEW_FOES = {frog:[10,100], cannon:[8,150], spikeball:[8,100], wisp:[6,200]};
+export const NEW_FOES_FROM = 3;
 // 難易度：踏破すると次が解放。1段ごとに敵のHP×1.8・攻撃力×1.3。
 // 敵Lv（＝拾う装備のアイテムLv）が5ずつ上がり、付与効果の上位の階級（T6・T7）が出るようになる
 export const DIFF_MAX = 5;
@@ -132,7 +161,8 @@ export const CP_RULE = {dropMul:0.5, bossDrops:1, fullBossDrops:2};
 
 // 敵の名前（ログ・図鑑・被弾の記録用）
 export const FOE_N = {mini:'小スライム', slime:'スライム', bat:'コウモリ', thrower:'投石兵', shield:'盾兵', boar:'突進イノシシ',
-  bigslime:'大スライム', mole:'もぐら', bomber:'自爆ボム', ghost:'さまよう霊', chest:'宝箱'};
+  bigslime:'大スライム', mole:'もぐら', bomber:'自爆ボム', ghost:'さまよう霊', chest:'宝箱',
+  frog:'跳ねガエル', cannon:'砲台', spikeball:'鉄球', wisp:'癒しの灯'};
 // エリート：まれに出る強い敵。特性を1〜2個持ち、良い装備を必ず落とす
 export const ELITE_MODS = {
   fast:  {n:'速い',   d:'動きが1.6倍'},

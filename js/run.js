@@ -1,6 +1,6 @@
 // 冒険（更新処理と入力）
 import { $, rnd, pick, pickW, fmt } from './util.js';
-import { RAR, ZONES, DROP_FX, WTYPES, MATS, CLEAR_DIST, DIFF_MAX, diffInfo, CP_RULE, FOE_N, ELITE_MODS, BOSSES } from './data.js';
+import { RAR, ZONES, DROP_FX, WTYPES, MATS, CLEAR_DIST, DIFF_MAX, diffInfo, CP_RULE, FOE_N, ELITE_MODS, BOSSES, DEEP_ZONES, DEEP_LEN, DEEP_STRETCH, DEEP_LV, deepInfo, NEW_FOES, NEW_FOES_FROM } from './data.js';
 import { genItem, salvage, computeStats, powerWith, noteFound } from './items.js';
 import { SAVE, saveGame } from './save.js';
 import { closeModal, dialog, closeDialog } from './ui.js';
@@ -61,22 +61,30 @@ if (window.ResizeObserver) new ResizeObserver(resizeNow).observe($('stage'));
 
 // チェックポイントから出撃したときの補い：そこまで走っていれば上がっていたスキルのレベルと、大群の育ち具合（経過時間の換算）
 export const CP_CATCHUP = {500:{lv:5, t:105}, 1000:{lv:8, t:210}, 1500:{lv:11, t:316}};   // シミュレーションで測った中央値
+// 深層の途中から出るとき（2000m より先は測った値から伸ばす。走る速さは同じなので、500m ごとにかかる時間は通常と同じ）
+export const catchFor = s => CP_CATCHUP[s] || {lv:Math.min(40, Math.round(11 + (s - 1500)*0.0045)), t:Math.round(s*0.21)};
+// 深層を遊べるか：通常の難易度5を踏破している
+export const deepOpen = () => !!SAVE.prog.clears[DIFF_MAX];
 
 // opt：{diff, start}（省略すると前回の選択）/ {daily:true}：日替わりダンジョン（日付で決まるコース。opt.key で日付を指定できる）
 // 日替わりのコースの乱数：何回使ったかを数える（途中から再開するとき、同じところまで進めるため）
 function countRng(f){ let n = 0; const g = () => (n++, f()); g.count = () => n; return g; }
+// opt.deep：深層（難易度は深層の段。上限なし）
 export function startRun(opt = {}){
   unlockAudio();
   const P = SAVE.prog;
   const daily = opt.daily ? dailyPlan(opt.key) : null;
-  const diff = daily ? daily.diff : Math.min(P.maxDiff, Math.max(1, opt.diff ?? P.diff));
-  let start = daily ? 0 : opt.start ?? P.start;
-  if (!(start >= 0 && start % 500 === 0 && start <= (P.cp[diff] || 0))) start = 0;
-  if (!daily){ P.diff = diff; P.start = start; }
-  const D = diffInfo(diff);
+  const deep = !daily && !!opt.deep && deepOpen();
+  const PP = deep ? P.deep : P;   // 進み具合（難易度・チェックポイント・最高距離）は通常と深層で別々
+  const diff = daily ? daily.diff : Math.min(PP.maxDiff, Math.max(1, opt.diff ?? PP.diff));
+  let start = daily ? 0 : opt.start ?? PP.start;
+  if (!(start >= 0 && start % 500 === 0 && start <= (PP.cp[diff] || 0))) start = 0;
+  if (!daily){ PP.diff = diff; PP.start = start; P.layer = deep ? 'deep' : 'normal'; }
+  const D = deep ? deepInfo(diff) : diffInfo(diff);
   const base = computeStats(SAVE.equip), st = {...base, stompMul:1};   // st は出撃中に強化スキルで変わる
   R = {dist:start, px:start*25, speed:150, base, st, eid:0, levelup:false, hordeT:45, horde:null,
-       diff, start, cpRun:start > 0, lvOff:D.lvOff, hpMul:D.hpMul, dmgMul:D.dmgMul, tc:D.tierCap, tOff:start ? CP_CATCHUP[start].t : 0,
+       diff, start, cpRun:start > 0, lvOff:D.lvOff, hpMul:D.hpMul, dmgMul:D.dmgMul, tc:D.tierCap, tOff:start ? catchFor(start).t : 0,
+       deep, lenMul:deep ? DEEP_STRETCH : 1, clearDist:deep ? DEEP_LEN : CLEAR_DIST, blvOff:deep ? DEEP_LV : 0,
        p:{y:GY, vy:0, jumps:0, hold:false, buf:0, hp:st.hp, maxHp:st.hp, inv:0, atkT:0.4, revived:false, swing:0, swingMax:0.18},
        enemies:[], shots:[], eshots:[], haz:[], fx:[], texts:[], spawnT:1.0, nextBoss:start + 500, boss:null, gimT:6, fog:0,
        gold:0, kills:0, stomps:0, jumpsUsed:0, hurts:{}, loot:[], paused:false, over:false, t:0, elites:0, bossLog:[],
@@ -99,12 +107,12 @@ export function startRun(opt = {}){
     R.hordeT = Math.min(R.hordeT, R.hordeEvery + 5);
   }
   R.banner.t = 0;
-  R.zoneCard = {t:2.6, max:2.6, i:zoneIdx(), sub:daily ? '日替わりダンジョン' : diff > 1 ? `難易度${diff}` : '', from:null};
+  R.zoneCard = {t:2.6, max:2.6, i:zoneIdx(), sub:daily ? '日替わりダンジョン' : deep ? `深層 難易度${diff}` : diff > 1 ? `難易度${diff}` : '', from:null};
   initSkills();
   applyPassives();
   if (opt.resume) applySnap(opt.resume);
   else {
-    if (start) catchUp(CP_CATCHUP[start].lv);
+    if (start) catchUp(catchFor(start).lv);
     if (st.uniq.has('sage')) R.sk.pending++;   // 賢者の冠：出撃してすぐスキルを1つ選べる
   }
   saveGame();
@@ -117,7 +125,7 @@ export function startRun(opt = {}){
   sizeCanvas();
   lastT = performance.now();
   rafId = 0; kick();
-  playBgm('zone' + (R.zoneOrder ? R.zoneOrder[zoneIdx()] : zoneIdx()));
+  playBgm(zoneSong());
 }
 export function toBase(){
   clearRunSnap();
@@ -144,9 +152,17 @@ function loop(now){
   draw();
   if (!still) rafId = requestAnimationFrame(loop);
 }
-export const zoneIdx = () => Math.min(ZONES.length - 1, Math.floor(R.nextBoss/500) - 1);
-export const zone = () => ZONES[R.zoneOrder ? R.zoneOrder[zoneIdx()] : zoneIdx()];
-export const elv = () => 1 + Math.floor(R.dist/100) + R.lvOff;   // 敵Lv（表示・拾う装備のアイテムLv）
+// エリア：通常は500m ごと（4つ）、深層は2000m ごと（5つ。ボスは500m ごとにエリアの4体を順に）
+export const zoneIdx = () => R.deep ? Math.min(DEEP_ZONES.length - 1, Math.floor((R.nextBoss - 500)/2000)) : Math.min(ZONES.length - 1, Math.floor(R.nextBoss/500) - 1);
+export const zoneAt = i => R.deep ? DEEP_ZONES[i] : ZONES[R.zoneOrder ? R.zoneOrder[i] : i];
+export const zone = () => zoneAt(zoneIdx());
+export const zoneSong = () => R.deep ? 'deep' + zoneIdx() : 'zone' + (R.zoneOrder ? R.zoneOrder[zoneIdx()] : zoneIdx());
+export const bossId = () => { const Z = zone(); return Z.bosses ? Z.bosses[(R.nextBoss/500 - 1) % Z.bosses.length] : Z.boss; };
+export const bossName = e => (e && e.prefix || '') + BOSSES[e ? e.boss : bossId()].n;
+export const bossTotal = () => R.clearDist / 500;
+// 進み具合の距離：深層は距離が5倍なので、敵の強さ・湧き方には5分の1にした距離を使う
+export const dEff = () => R.dist / R.lenMul;
+export const elv = () => 1 + Math.floor(dEff()/100) + R.blvOff + R.lvOff;   // 敵Lv（表示・拾う装備のアイテムLv）
 const blv = () => elv() - R.lvOff;                                 // 強さの計算に使うLv（難易度の分は倍率で掛ける）
 export const ecenter = e => [e.x, e.y - e.h/2];
 // 狙える敵（倒れていない・地中にいない）
@@ -166,6 +182,11 @@ export const EB = {
   bomber:  {hp:12,  dmg:20, w:18, h:22, gold:4, sp:55},   // 近づくと光って爆発（跳ぶか先に倒す）
   ghost:   {hp:16,  dmg:9,  w:20, h:22, gold:4, sp:40},   // 上下にゆっくり漂う
   chest:   {hp:40,  dmg:0,  w:24, h:18, gold:45, sp:0},   // 丘の宝箱
+  // 難易度3から・深層の敵
+  frog:     {hp:20, dmg:11, w:22, h:18, gold:4, sp:0},    // 座って待ち、ぴょんと跳ねて近づく（踏める）
+  cannon:   {hp:40, dmg:10, w:26, h:24, gold:6, sp:0},    // 地面に据えた砲台。低い弾と高い弾を交互に撃つ
+  spikeball:{hp:30, dmg:14, w:22, h:22, gold:5, sp:85},   // 速く転がるトゲの玉。踏めない（跳び越えるか倒す）
+  wisp:     {hp:18, dmg:6,  w:18, h:18, gold:5, sp:28},   // 宙に浮かび、周りの敵を回復する（くぐれる）
   boss:    {hp:357, dmg:18, w:56, h:70, gold:60},          // HP は BOSS_GROW で伸びる
 };
 // コウモリの高さ：low は立っていると当たる（跳んで越える）、high は大きく跳ぶと当たる
@@ -202,6 +223,10 @@ export function mkEnemy(type, o = {}){
   if (type==='ghost'){ e.ph = rng()*Math.PI*2; e.y = ghostY(e); }
   if (type==='mole'){ e.phase = 'under'; e.under = true; }
   if (type==='chest'){ e.x = VW + 20; }
+  if (type==='frog'){ e.hopT = 0.3 + rng()*0.8; e.vy = 0; }
+  if (type==='cannon'){ e.cd = 1.0; e.nextHi = rng() < 0.5; }
+  if (type==='wisp'){ e.ph = rng()*6; e.healT = 1.5; e.y = GY - 50; }
+  if (type==='spikeball') e.rot = 0;
   if (type==='boss'){
     const K = BOSSES[o.boss]; e.boss = o.boss; e.w = K.w; e.h = K.h; e.fly = K.fly || 0; e.y = GY - e.fly;
     e.q = []; e.qt = 0; e.cd = 1.2; e.fightT = 0; e.last = [];
@@ -235,6 +260,10 @@ export const HINTS = {
   beam:'光線：赤い線＝低い（跳んで空中にいる）／青い線＝高い（跳ばない）',
   ward:'結界：スキルがほとんど効かない。武器で3回たたくと割れて、ボスが止まる',
   last:'最後のあがき：HPが残り少ないと攻撃が速くなる',
+  frog:'跳ねガエル：ぴょんと跳ねて近づく。踏むか、跳び越える',
+  cannon:'砲台：光ったら撃つ。赤い線＝低い弾（跳ぶ）／青い線＝高い弾（跳ばない）',
+  spikeball:'鉄球：トゲで踏めない。跳び越えるか、先に倒す',
+  wisp:'癒しの灯：周りの敵を回復する。先に倒す（下はくぐれる）',
 };
 function meet(key){
   const F = SAVE.prog.foes;
@@ -245,7 +274,7 @@ function meet(key){
 }
 
 function spawnEnemy(){
-  const d = R.dist, zd = d - (R.nextBoss - 500), Z = zone(), rng = R.cr;
+  const d = dEff(), zd = R.dist - (R.nextBoss - 500), Z = zone(), rng = R.cr;
   // 小さいスライムの群れ（進むほど多く・長く）
   if (d > 40 && rng() < Math.min(0.45, 0.15 + d/2000)){
     const n = Math.min(8, 3 + Math.floor(d/400));
@@ -254,8 +283,10 @@ function spawnEnemy(){
   }
   const w = {};
   for (const [k, [wt, from]] of Object.entries(Z.foes)) if (zd >= from) w[k] = wt;
+  // 通常の難易度3から、新しい敵も混ざる
+  if (!R.deep && !R.daily && R.diff >= NEW_FOES_FROM) for (const [k, [wt, from]] of Object.entries(NEW_FOES)) if (zd >= from) w[k] = (w[k] || 0) + wt;
   const type = pickW(w, rng);
-  const elite = d - R.start > 120 && rng() < (ELITE.chance + d*ELITE.grow) * R.eliteMul;
+  const elite = R.dist - R.start > 120 && rng() < (ELITE.chance + d*ELITE.grow) * R.eliteMul;
   const e = mkEnemy(type, {elite, rng});
   if (R.log) R.log.push([Math.round(d), type, elite ? 1 : 0, e.lane || '', e.elite ? e.elite.join('+') : '']);
   R.enemies.push(e);
@@ -344,17 +375,18 @@ export function step(dt){
   else if (R.hints.length) R.hint = R.hints.shift();
 
   if (!R.boss && !(R.clearT > 0) && R.dist >= R.nextBoss){
-    const id = zone().boss;
+    const id = bossId(), Z = zone();
     R.boss = mkEnemy('boss', {boss:id}); R.enemies.push(R.boss); R.bossHits = 0;
+    if (R.deep){ R.boss.prefix = Z.bp; R.boss.aura = Z.bc; }   // 深層：エリアの名前と光をまとう
     R.haz = [];
-    R.banner = {t:2, txt:`${BOSSES[id].n} 出現！`, c:'#ff8a6b'};
+    R.banner = {t:2, txt:`${bossName(R.boss)} 出現！`, c:'#ff8a6b'};
     meet(id);
     sfx('boss'); shake(0.6, 3);
     playBgm('boss');
   }
   if (!R.boss && !(R.clearT > 0)){
     R.spawnT -= dt;
-    if (R.spawnT <= 0){ spawnEnemy(); R.spawnT = Math.max(0.45, 1.5 - R.dist/1500) * rnd(0.7, 1.3, R.cr); }
+    if (R.spawnT <= 0){ spawnEnemy(); R.spawnT = Math.max(0.45, 1.5 - dEff()/1500) * rnd(0.7, 1.3, R.cr); }
   }
   updateHorde(dt);
   updateGimmick(dt, scroll);
@@ -539,6 +571,40 @@ function moveFoe(e, dt, scroll, m){
       e.x -= scroll*dt;
       e.harmless = true;
       break;
+    case 'frog':
+      // 座っている（地面と一緒に流れる）→ 跳ねて前へ。空中でも当たる。着地したところを踏める
+      if (e.y >= GY && e.vy >= 0){
+        e.y = GY; e.vy = 0; e.x -= scroll*dt;
+        if (e.x < VW + 10 && (e.hopT -= dt*m) <= 0){ e.vy = -300; e.hopT = 0.9 + Math.random()*0.4; }
+      } else {
+        e.vy += 900*dt*m; e.y += e.vy*dt*m; e.x -= (120*m + scroll)*dt;
+        if (e.y >= GY){ e.y = GY; e.vy = 0; }
+      }
+      break;
+    case 'cannon':
+      // 地面に据えてある（流れてくるだけ）。光ったあと、低い弾と高い弾を交互に撃つ
+      e.x -= scroll*dt;
+      if (e.x < VW - 10 && e.x > PX + 50){
+        e.cd -= dt*m; e.wind = e.cd < 0.45;
+        if (e.cd <= 0){
+          const hi = e.nextHi; e.nextHi = !e.nextHi; e.cd = 2.1; e.wind = false;
+          R.eshots.push({kind:'orb', x:e.x - e.w/2, y:hi ? ORB.high : ORB.low, vx:-150, r:6, dmg:e.dmg, hi, src:'cannon-' + (hi ? 'high' : 'low')});
+          sfx('shoot');
+        }
+      } else e.wind = false;
+      break;
+    case 'spikeball':
+      e.x -= (sp + scroll)*dt; e.rot += dt*8*m;
+      break;
+    case 'wisp':
+      // ゆっくり漂いながら、周りの敵（ボス以外）を回復する
+      e.x -= (sp + scroll)*dt; e.y = GY - 50 + Math.sin(e.t*2 + e.ph)*6;
+      if (e.x < VW && (e.healT -= dt*m) <= 0){
+        e.healT = 2.2;
+        for (const o of R.enemies) if (o !== e && alive(o) && o.type !== 'boss' && Math.abs(o.x - e.x) < 110) o.hp = Math.min(o.maxHp, o.hp + o.maxHp*0.2);
+        R.fx.push({kind:'ring', x:e.x, y:e.y - e.h/2, r:110, t:0.4, max:0.4, c:'140,255,190'});
+      }
+      break;
     default:   // mini・slime・bigslime・shield
       e.x -= (sp + scroll)*dt;
   }
@@ -584,7 +650,7 @@ function updateBoss(e, dt, realDt = dt){
   // 第2形態
   if (!e.p2 && e.hp < e.maxHp * 0.5){
     e.p2 = true; e.q = []; e.tele = 0; e.cd = 0.9; e.pause = 0.8;
-    R.banner = {t:2, txt:`${BOSSES[e.boss].n} 第2形態！`, c:'#ff5b4a'};
+    R.banner = {t:2, txt:`${bossName(e)} 第2形態！`, c:'#ff5b4a'};
     R.flash = {c:'#ff5b4a', t:0.3, max:0.3}; shake(0.4, 4); sfx('boss');
   }
   if (e.pause > 0){ e.pause -= dt; return; }
@@ -834,7 +900,7 @@ function stomp(e){
   const p = R.p;
   p.vy = -JUMP.bounce; p.jumps = 1; p.inv = Math.max(p.inv, 0.15);
   // トゲのエリート：踏むと逆にダメージ
-  if (has(e, 'spiky')){
+  if (has(e, 'spiky') || e.type === 'spikeball'){
     p.inv = 0; hurtPlayer(e.dmg, 'spiky');
     R.fx.push({kind:'ring', x:e.x, y:e.y - e.h, r:22, t:0.25, max:0.25, c:'255,120,120'});
     return;
@@ -865,7 +931,7 @@ function chainLightning(src, dmg){
   if (pts.length > 1) R.fx.push({kind:'bolt', pts, t:0.2, max:0.2});
 }
 const KILL_C = {slime:'#6ccf5e', mini:'#6ccf5e', bigslime:'#5fb6e8', bat:'#8a5cc7', boss:'#a58fd0', shield:'#9aa7b0', boar:'#9a6a40',
-  mole:'#8a6a4a', bomber:'#ff8a5a', ghost:'#dfe8ff', chest:'#ffd36b'};
+  mole:'#8a6a4a', bomber:'#ff8a5a', ghost:'#dfe8ff', chest:'#ffd36b', frog:'#7fcf6a', cannon:'#7a7f8a', spikeball:'#a0a6ae', wisp:'#9fffc8'};
 function onKill(e){
   e.dead = true; R.kills++;
   const g = Math.round(e.gold * (1 + e.lv*0.35) * (1 + R.st.gold/100) * R.goldMul);
@@ -901,7 +967,7 @@ function onKill(e){
     shake(0.5, 5); R.flash = {c:'#ffffff', t:0.3, max:0.3};
     sfx('bosskill'); duckBgm(2.2);
     // 撃破の演出：スロー・光の筋・衝撃波・金貨
-    R.slowmo = 0.8; R.bossFx = {t:2.0, max:2.0, x:cx, y:cy, n:BOSSES[e.boss].n};
+    R.slowmo = 0.8; R.bossFx = {t:2.0, max:2.0, x:cx, y:cy, n:bossName(e)};
     for (let i = 0; i < (SAVE.settings.eco ? 14 : 28); i++) R.fx.push({kind:'coin', x:cx + rnd(-10, 10), y:cy, vx:rnd(-160, 160), vy:rnd(-420, -180), g:900, t:rnd(1.2, 1.8), max:1.8});
     const n = R.cpRun ? CP_RULE.bossDrops : CP_RULE.fullBossDrops;
     for (let i = 0; i < n; i++) drop(e, e.lv + 1, 2);
@@ -910,14 +976,17 @@ function onKill(e){
     R.boss = null;
     R.eshots = [];
     R.p.hp = Math.min(R.p.maxHp, R.p.hp + R.p.maxHp*(R.healBoss ? 1 : 0.3));
-    const P = SAVE.prog, b = R.nextBoss;
-    if (b >= CLEAR_DIST){
+    const P = SAVE.prog, PP = R.deep ? P.deep : P, b = R.nextBoss;
+    if (b >= R.clearDist){
       // 踏破：0mから走ったときは報酬（エピック以上を1つ）。日替わりは進み具合（難易度の解放）に数えない
       if (!R.cpRun) drop(e, e.lv + 2, 3);
       if (!R.daily){
-        R.clearNew = P.maxDiff === R.diff && R.diff < DIFF_MAX;
-        P.clears[R.diff] = (P.clears[R.diff] || 0) + 1;
-        if (R.clearNew){ P.maxDiff = R.diff + 1; P.cp[R.diff + 1] = 0; P.best[R.diff + 1] = 0; }
+        // 通常は難易度5まで。深層は上限なし（踏破するたびに次が開く）
+        R.clearNew = PP.maxDiff === R.diff && (R.deep || R.diff < DIFF_MAX);
+        R.deepNew = !R.deep && R.diff === DIFF_MAX && !P.clears[DIFF_MAX];   // 通常の難易度5を初めて踏破：深層が開く
+        PP.clears[R.diff] = (PP.clears[R.diff] || 0) + 1;
+        if (R.clearNew){ PP.maxDiff = R.diff + 1; PP.cp[R.diff + 1] = 0; PP.best[R.diff + 1] = 0; }
+        if (R.deepNew){ P.layer = 'deep'; P.deep.diff = 1; P.deep.start = 0; }
       }
       saveGame();
       R.clearT = 1.2;   // 少し余韻を見せてから結果へ（step の中で数える）
@@ -925,13 +994,13 @@ function onKill(e){
       R.banner = {t:3, txt:'踏破！', c:'#ffd36b'};
       return;
     }
-    if (!R.daily) P.cp[R.diff] = Math.max(P.cp[R.diff] || 0, b);
+    if (!R.daily) PP.cp[R.diff] = Math.max(PP.cp[R.diff] || 0, b);
     const from = zone();
     R.nextBoss += 500;
     // 次のエリアへ：空が切り替わり、エリア名のカードが出る（撃破の演出のあと）
-    R.zoneCard = {t:3.4, max:3.4, delay:1.0, i:zoneIdx(), sub:`${R.nextBoss}m にボス`, from};
+    if (zone() !== from) R.zoneCard = {t:3.4, max:3.4, delay:1.0, i:zoneIdx(), sub:`${R.nextBoss}m にボス`, from};   // 深層はエリアが変わるときだけ
     if (!R.bossHits) R.banner = {t:2.6, txt:'ノーダメージ撃破！', c:'#7fe8ff'};
-    playBgm('zone' + (R.zoneOrder ? R.zoneOrder[zoneIdx()] : zoneIdx()), 1.5);
+    playBgm(zoneSong(), 1.5);
     saveRunSnap();   // 倒したボスがもう一度出ないよう、すぐ記録する
     saveGame();
   } else {
@@ -1068,16 +1137,18 @@ function endRun(retreat, reason){
   SAVE.runs++;
   const dist = Math.floor(R.dist), P = SAVE.prog;
   SAVE.best = Math.max(SAVE.best, dist);
-  if (!R.daily) P.best[R.diff] = Math.max(P.best[R.diff] || 0, dist);
+  const PP = R.deep ? P.deep : P;
+  if (!R.daily) PP.best[R.diff] = Math.max(PP.best[R.diff] || 0, dist);
   const rec = recordRun(R);   // 記録・実績・日替わりの報酬（保存もする）
   const loot = [...R.loot].sort((a,b) => b.r - a.r || b.ilvl - a.ilvl);
   const lootHTML = loot.length ? loot.map(it => `<div><b style="color:${RAR[it.r].c}">${RAR[it.r].n}</b> <span style="color:${RAR[it.r].c}">${it.name}</span> <small style="color:var(--muted)">Lv${it.ilvl}</small></div>`).join('')
     : '<div style="color:var(--muted);text-align:center">装備は拾えなかった</div>';
-  const boss = R.boss && BOSSES[R.boss.boss];
-  const title = (R.daily ? '日替わり：' : '') + (retreat ? '撤退した' : reason === 'clear' ? `踏破！${R.diff > 1 ? `（難易度${R.diff}）` : ''}` : reason === 'boss' ? `${boss ? boss.n : 'ボス'}を倒しきれなかった…` : '力尽きた…');
+  const dname = R.deep ? `深層 難易度${R.diff}` : `難易度${R.diff}`;
+  const title = (R.daily ? '日替わり：' : R.deep ? '深層：' : '') + (retreat ? '撤退した' : reason === 'clear' ? `踏破！${R.deep || R.diff > 1 ? `（${dname}）` : ''}` : reason === 'boss' ? `${R.boss ? bossName(R.boss) : 'ボス'}を倒しきれなかった…` : '力尽きた…');
   let note = '';
   if (reason === 'boss') note = 'ボスは70秒以内に倒す必要がある。装備（武器）を鍛えるか、スキルを育てよう（スキルはボスにも効くが、雑魚より効きにくい）。';
-  if (reason === 'clear') note = (R.clearNew ? `<b style="color:var(--accent)">難易度${R.diff + 1} が解放された！</b> 敵は強くなるが、アイテムLvの上限と付与効果の階級の上限が上がる。<br>` : '')
+  if (reason === 'clear') note = (R.deepNew ? `<b style="color:#b48cff">深層が開いた！</b> 1回 10000m・ボス20体の長い道。深層は難易度1から始まり、上限なし（深層1は通常の難易度5より強い）。出撃画面で「深層」を選ぶ。<br>` : '')
+    + (R.clearNew ? `<b style="color:var(--accent)">${R.deep ? '深層 ' : ''}難易度${R.diff + 1} が解放された！</b> 敵は強くなるが、拾う装備のアイテムLvも上がる。<br>` : '')
     + (R.cpRun ? '途中から出撃したので、踏破報酬はなし。' : '0mからの踏破報酬：エピック以上の装備を1つ。');
   // 日替わりの節目の報酬・新しく達成した実績
   const extra = [
@@ -1105,7 +1176,7 @@ export function pauseRun(){
   if (!R || R.over || R.paused || R.levelup) return;   // レベルアップの3択中はそれ自体が止まっている
   R.paused = true; R.p.hold = false;
   pauseBgm(true);
-  dialog(`<h2>一時停止</h2><p style="color:var(--muted);font-size:13px">${R.daily ? `日替わり（${R.daily.mods.map(m => DAILY_MODS[m].n).join('・')}）・ ` : ''}${R.diff > 1 ? `難易度${R.diff} ・ ` : ''}${fmt(R.dist)}m ・ 拾った装備 ${R.loot.length}個</p>
+  dialog(`<h2>一時停止</h2><p style="color:var(--muted);font-size:13px">${R.daily ? `日替わり（${R.daily.mods.map(m => DAILY_MODS[m].n).join('・')}）・ ` : ''}${R.deep ? `深層 難易度${R.diff} ・ ` : R.diff > 1 ? `難易度${R.diff} ・ ` : ''}${fmt(R.dist)}m ・ 拾った装備 ${R.loot.length}個</p>
     <p class="sksum">${skillSummary()}</p>
     <div class="btns"><button class="primary" id="dResume">再開</button><button id="dRetreat">撤退する（拾った装備は持ち帰る）</button></div>`);
   $('dResume').onclick = () => { closeDialog(); R.paused = false; unlockAudio(); pauseBgm(false); resumeClock(); };
@@ -1139,7 +1210,7 @@ const RUN_KEY = 'lootrunner-run', SNAP_V = 1;
 export function saveRunSnap(){
   if (!R || R.over || R.clearT > 0) return;
   const S = R.sk;
-  const snap = {v:SNAP_V, at:Date.now(), diff:R.diff, start:R.start, daily:R.daily ? R.daily.key : null, crN:R.cr.count ? R.cr.count() : 0,
+  const snap = {v:SNAP_V, at:Date.now(), diff:R.diff, start:R.start, deep:!!R.deep, daily:R.daily ? R.daily.key : null, crN:R.cr.count ? R.cr.count() : 0,
     px:R.px, t:R.t, tOff:R.tOff, nextBoss:R.nextBoss, hordeT:R.hordeT, hp:R.p.hp, revived:R.p.revived,
     gold:R.gold, kills:R.kills, stomps:R.stomps, jumpsUsed:R.jumpsUsed, elites:R.elites, eliteKills:R.eliteKills, flawless:R.flawless,
     salv:R.salv || 0, evos:R.evos || 0, blocked:R.blocked || 0, bossLog:R.bossLog, hurts:R.hurts, loot:R.loot.map(i => i.id), fullWarn:!!R.fullWarn,
@@ -1151,13 +1222,14 @@ export function loadRunSnap(){
   try { s = JSON.parse(localStorage.getItem(RUN_KEY)); } catch(e){ return null; }
   const P = SAVE.prog;
   if (!s || s.v !== SNAP_V || !Number.isFinite(s.px) || !s.sk || typeof s.sk.act !== 'object') return null;
-  if (!(s.diff >= 1 && s.diff <= P.maxDiff) && !s.daily) return null;
+  if (s.deep && !deepOpen()) return null;
+  if (!(s.diff >= 1 && s.diff <= (s.deep ? P.deep : P).maxDiff) && !s.daily) return null;
   return s;
 }
 export function clearRunSnap(){ try { localStorage.removeItem(RUN_KEY); } catch(e){} }
 // 保存しておいた状態から冒険を続ける
 export function resumeRun(s){
-  startRun(s.daily ? {daily:true, key:s.daily, resume:s} : {diff:s.diff, start:s.start, resume:s});
+  startRun(s.daily ? {daily:true, key:s.daily, resume:s} : {deep:!!s.deep, diff:s.diff, start:s.start, resume:s});
 }
 function applySnap(s){
   const num = (x, d = 0) => Number.isFinite(x) ? x : d;
@@ -1178,6 +1250,7 @@ function applySnap(s){
     for (let i = 0; i < num(s.crN); i++) R.cr();
   }
   R.zoneCard = {t:2.6, max:2.6, i:zoneIdx(), sub:'続きから', from:null};
+  playBgm(zoneSong());
 }
 
 // 起動したときに途中の冒険があれば聞く。やめるときは「撤退した」扱いで記録する
@@ -1188,7 +1261,7 @@ export function offerResume(){
   const ago = min < 1 ? 'さっき' : min < 60 ? `${min}分前` : min < 60*24 ? `${Math.round(min/60)}時間前` : `${Math.round(min/1440)}日前`;
   dialog(`<h2>冒険の続き</h2>
     <p class="sksum">前回の冒険が途中で止まっています（${ago}）。<br>
-      ${s.daily ? '日替わり ・ ' : s.diff > 1 ? `難易度${s.diff} ・ ` : ''}<b>${fmt(s.px/25)}m</b> ・ Lv ${s.sk.lv} ・ 拾った装備 ${(s.loot || []).length}個</p>
+      ${s.daily ? '日替わり ・ ' : s.deep ? `深層 難易度${s.diff} ・ ` : s.diff > 1 ? `難易度${s.diff} ・ ` : ''}<b>${fmt(s.px/25)}m</b> ・ Lv ${s.sk.lv} ・ 拾った装備 ${(s.loot || []).length}個</p>
     <p class="dnote">画面にいた敵は戻りません。ボス戦の途中だった場合、ボスは最初からです。拾った装備とゴールドは、どちらを選んでも所持品に入っています。</p>
     <div class="btns"><button class="primary" id="dCont">続きから遊ぶ</button><button id="dQuit">やめる（撤退した扱い）</button></div>`);
   $('dCont').onclick = () => { closeDialog(); resumeRun(s); };
@@ -1198,10 +1271,11 @@ function abandonRun(s){
   const dist = Math.floor(s.px/25), P = SAVE.prog;
   const fake = {kills:s.kills || 0, gold:s.gold || 0, t:s.t || 0, dist, start:s.start || 0, bossLog:s.bossLog || [], eliteKills:s.eliteKills || 0,
     stomps:s.stomps || 0, jumpsUsed:s.jumpsUsed || 0, loot:s.loot || [], salv:s.salv || 0, flawless:s.flawless || 0, evos:s.evos || 0,
-    endReason:'retreat', sk:{lv:s.sk.lv || 1}, diff:s.diff, daily:s.daily ? dailyPlan(s.daily) : null};
+    endReason:'retreat', sk:{lv:s.sk.lv || 1}, diff:s.diff, deep:!!s.deep, daily:s.daily ? dailyPlan(s.daily) : null};
   SAVE.runs++;
   SAVE.best = Math.max(SAVE.best, dist);
-  if (!s.daily) P.best[s.diff] = Math.max(P.best[s.diff] || 0, dist);
+  const PP = s.deep ? P.deep : P;
+  if (!s.daily) PP.best[s.diff] = Math.max(PP.best[s.diff] || 0, dist);
   recordRun(fake);
   clearRunSnap();
 }

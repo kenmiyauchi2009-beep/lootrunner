@@ -1,12 +1,12 @@
 // 拠点画面（装備・所持品・鍛冶・図鑑）
 import { $, fmt } from './util.js';
-import { RAR, WTYPES, SLOT_N, ICON, AFFIX, UNIQUES, uniqueOf, SETS, MATS, EQUIP_SLOTS, slotOfKey, INV_LIMIT, invExpandCost, ZONES, diffInfo, CP_RULE } from './data.js';
+import { RAR, WTYPES, SLOT_N, ICON, AFFIX, UNIQUES, uniqueOf, SETS, MATS, EQUIP_SLOTS, slotOfKey, INV_LIMIT, invExpandCost, ZONES, diffInfo, CP_RULE, DEEP_ZONES, deepInfo, DEEP_LV } from './data.js';
 import { affRange, tierRange, fmtNum, fmtAff, affGrade, baseStats, computeStats, powerWith, equipKeyFor, equippedKey,
   salvageValue, salvageMats, upgradeCost, rerollCost, valueCost, lockCost, canPay,
   smithUpgrade, smithReroll, smithValue, smithLock, salvage } from './items.js';
 import { SAVE, saveGame } from './save.js';
 import { closeModal, dialog, closeDialog, toast } from './ui.js';
-import { startRun } from './run.js';
+import { startRun, deepOpen } from './run.js';
 import { renderHub } from './hub.js';
 import { ACTIVES, PASSIVES, unlocked } from './skills.js';
 import { TRAIN } from './meta.js';
@@ -41,9 +41,11 @@ export function renderBase(){
   const st = computeStats(SAVE.equip);
   $('bGold').textContent = fmt(SAVE.gold) + ' G';
   const P = SAVE.prog;
-  $('bBest').textContent = `${P.maxDiff > 1 ? `難易度${P.diff} ` : ''}最高 ${fmt(P.best[P.diff] || 0)}m`;
-  const cp = P.cp[P.diff] || 0;
-  $('goSub').textContent = P.maxDiff > 1 || cp ? `難易度${P.diff}${P.maxDiff > 1 ? `（${P.maxDiff}まで解放）` : ''} ・ チェックポイント ${cp ? cp + 'mまで' : 'なし'}` : '2000m の4体目のボスを倒すと踏破';
+  const deepNow = deepOpen() && P.layer === 'deep', PP = deepNow ? P.deep : P;
+  $('bBest').textContent = `${deepNow ? `深層${PP.diff} ` : P.maxDiff > 1 ? `難易度${P.diff} ` : ''}最高 ${fmt(PP.best[PP.diff] || 0)}m`;
+  const cp = PP.cp[PP.diff] || 0;
+  $('goSub').textContent = deepNow ? `深層 難易度${PP.diff}（${PP.maxDiff}まで解放）・ 10000m ・ チェックポイント ${cp ? cp + 'mまで' : 'なし'}`
+    : P.maxDiff > 1 || cp ? `難易度${P.diff}${P.maxDiff > 1 ? `（${P.maxDiff}まで解放）` : ''} ・ チェックポイント ${cp ? cp + 'mまで' : 'なし'}${deepOpen() ? ' ・ 深層も選べる' : ''}` : '2000m の4体目のボスを倒すと踏破';
   $('bPower').textContent = fmt(st.power);
   $('bStats').innerHTML = [
     ['DPS(目安)', fmt(st.dps)], ['ボス火力', fmt(st.bossDps)], ['最大HP', fmt(st.hp)],
@@ -142,23 +144,41 @@ $('autoSel').onchange = e => {
   toast(SAVE.autoSalv < 0 ? '自動分解をやめた' : `${['コモン','アンコモン以下','レア以下'][SAVE.autoSalv]}を拾ったら自動で分解する（セット・レジェンド・戦力が上がるものは残す）`);
 };
 $('goBtn').onclick = openSortie;
-// 出撃の選択：難易度と、どこから走るか（チェックポイント）
+// 出撃の選択：通常／深層・難易度・どこから走るか（チェックポイント）
 export function openSortie(){
-  const P = SAVE.prog;
-  if (P.maxDiff === 1 && !P.cp[1]){ startRun({diff:1, start:0}); return; }
-  let d = P.diff;
+  const P = SAVE.prog, open = deepOpen();
+  if (P.maxDiff === 1 && !P.cp[1] && !open){ startRun({diff:1, start:0}); return; }
+  let deep = open && P.layer === 'deep', d = deep ? P.deep.diff : P.diff;
   const show = () => {
-    const D = diffInfo(d), cp = P.cp[d] || 0;
-    const starts = [0, 500, 1000, 1500].filter(s => s <= cp);
+    const PP = deep ? P.deep : P, D = deep ? deepInfo(d) : diffInfo(d), cp = PP.cp[d] || 0;
+    const starts = Array.from({length:cp/500 + 1}, (_, i) => i*500);
+    const zn = s => deep ? DEEP_ZONES[Math.min(DEEP_ZONES.length - 1, Math.floor(s/2000))].n : ZONES[s/500].n;
+    const note = s => s ? `雑魚のドロップ${Math.round(CP_RULE.dropMul*100)}%・ボスの装備${CP_RULE.bossDrops}個・踏破報酬なし・スキルはその分まとめて選ぶ`
+      : `ボスの装備${CP_RULE.fullBossDrops}個・踏破するとエピック以上を1つ`;
+    // 通常：難易度のボタン（1〜5）／深層：−＋で選ぶ（上限なし）
+    const diffUI = deep
+      ? `<div class="stepper"><button id="dMinus" ${d <= 1 ? 'disabled' : ''} aria-label="難易度を下げる">−</button><b>深層 難易度${d}${PP.clears[d] ? ' ✓' : ''}</b><button id="dPlus" ${d >= PP.maxDiff ? 'disabled' : ''} aria-label="難易度を上げる">＋</button></div><p class="dnote" style="text-align:center">深層は難易度${PP.maxDiff}まで解放</p>`
+      : P.maxDiff > 1 ? `<div class="seg">${Array.from({length:P.maxDiff}, (_, i) => `<button data-d="${i + 1}" class="${i + 1 === d ? 'on' : ''}" aria-pressed="${i + 1 === d}">難易度${i + 1}${P.clears[i + 1] ? ' ✓' : ''}</button>`).join('')}</div>` : '';
+    // スタート地点：通常はボタン、深層は数が多いので選ぶ欄
+    const startUI = deep && starts.length > 1
+      ? `<label class="fsel" for="dStart">どこから走るか<select id="dStart">${starts.map(s => `<option value="${s}">${s ? `${s}m（${zn(s)}）から` : '0mから'}</option>`).join('')}</select></label>
+         <p class="dnote" id="dStartNote">${note(0)}</p>
+         <div class="btns"><button class="primary" id="dGo">出撃する</button><button id="dNo">やめる</button></div>`
+      : `<div class="btns starts">${starts.map(s => `<button class="${s === 0 ? 'primary' : ''}" data-s="${s}">${s ? `${s}m（${zn(s)}）から` : '0mから'}<small>${note(s)}</small></button>`).join('')}
+         <button id="dNo">やめる</button></div>`;
     dialog(`<h2>出撃</h2>
-      ${P.maxDiff > 1 ? `<div class="seg">${Array.from({length:P.maxDiff}, (_, i) => `<button data-d="${i + 1}" class="${i + 1 === d ? 'on' : ''}" aria-pressed="${i + 1 === d}">難易度${i + 1}${P.clears[i + 1] ? ' ✓' : ''}</button>`).join('')}</div>` : ''}
-      <p class="sksum">${d > 1 ? `敵の強さ HP×${D.hpMul.toFixed(1)}・攻撃×${D.dmgMul.toFixed(1)} ・ ` : ''}アイテムLv ${1 + D.lvOff}〜${D.ilvlMax} ・ 付与効果 T${D.tierCap}まで<br>
-        最高 ${fmt(P.best[d] || 0)}m${P.clears[d] ? ` ・ 踏破 ${P.clears[d]}回` : ''}</p>
-      <div class="btns starts">${starts.map(s => `<button class="${s === 0 ? 'primary' : ''}" data-s="${s}">${s ? `${s}m（${ZONES[s/500].n}）から` : '0mから'}
-        <small>${s ? `雑魚のドロップ${Math.round(CP_RULE.dropMul*100)}%・ボスの装備${CP_RULE.bossDrops}個・踏破報酬なし・スキルはその分まとめて選ぶ` : `ボスの装備${CP_RULE.fullBossDrops}個・踏破するとエピック以上を1つ`}</small></button>`).join('')}
-        <button id="dNo">やめる</button></div>`);
+      ${open ? `<div class="seg layer"><button data-l="normal" class="${deep ? '' : 'on'}" aria-pressed="${!deep}">通常（2000m）</button><button data-l="deep" class="${deep ? 'on' : ''}" aria-pressed="${deep}">深層（10000m）</button></div>` : ''}
+      ${diffUI}
+      <p class="sksum">${deep || d > 1 ? `敵の強さ HP×${fmt(D.hpMul)}・攻撃×${D.dmgMul.toFixed(1)} ・ ` : ''}アイテムLv ${1 + D.lvOff + (deep ? DEEP_LV : 0)}〜${D.ilvlMax + (deep ? DEEP_LV : 0)} ・ 付与効果 T${D.tierCap}まで<br>
+        ${deep ? 'ボス20体・2000mごとにエリアが変わる ・ ' : ''}最高 ${fmt(PP.best[d] || 0)}m${PP.clears[d] ? ` ・ 踏破 ${PP.clears[d]}回` : ''}</p>
+      ${startUI}`);
+    document.querySelectorAll('#dcard [data-l]').forEach(b => b.onclick = () => { deep = b.dataset.l === 'deep'; d = deep ? P.deep.diff : P.diff; show(); });
     document.querySelectorAll('#dcard [data-d]').forEach(b => b.onclick = () => { d = Number(b.dataset.d); show(); });
-    document.querySelectorAll('#dcard [data-s]').forEach(b => b.onclick = () => startRun({diff:d, start:Number(b.dataset.s)}));
+    if ($('dMinus')) $('dMinus').onclick = () => { d = Math.max(1, d - 1); show(); };
+    if ($('dPlus')) $('dPlus').onclick = () => { d = Math.min(PP.maxDiff, d + 1); show(); };
+    document.querySelectorAll('#dcard [data-s]').forEach(b => b.onclick = () => startRun({deep, diff:d, start:Number(b.dataset.s)}));
+    if ($('dStart')){ $('dStart').value = String(Math.min(PP.start || 0, cp)); $('dStart').onchange = e => { $('dStartNote').textContent = note(Number(e.target.value)); }; $('dStartNote').textContent = note(Number($('dStart').value)); }
+    if ($('dGo')) $('dGo').onclick = () => startRun({deep, diff:d, start:Number($('dStart').value)});
     $('dNo').onclick = closeDialog;
   };
   show();

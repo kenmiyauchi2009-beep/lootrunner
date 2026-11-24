@@ -2,7 +2,7 @@
 // ゲームのファイルを更新したら VERSION を上げる。
 // → 次にアプリを開いたとき裏で新しい版を取得し、その次の起動から新しい版に切り替わる。
 // ファイルを増やしたら ASSETS にも足す（1つでも取得できないとインストールが失敗する）。
-const VERSION = '1.7.6';
+const VERSION = '1.8.0';
 const CACHE = 'lootrunner-' + VERSION;
 const ASSETS = [
   './',

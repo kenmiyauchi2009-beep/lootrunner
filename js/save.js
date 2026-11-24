@@ -1,11 +1,11 @@
 // セーブ（localStorage）。読み書きはすべて try/catch で囲む。
-import { RAR, WTYPES, AFFIX, uniqueOf, SETS, EQUIP_SLOTS, slotOfKey, INV_BASE, INV_LIMIT, DIFF_MAX, CLEAR_DIST, FAC_MAX, SKILL_N } from './data.js';
+import { RAR, WTYPES, AFFIX, uniqueOf, SETS, EQUIP_SLOTS, slotOfKey, INV_BASE, INV_LIMIT, DIFF_MAX, CLEAR_DIST, FAC_MAX, SKILL_N, DEEP_LEN } from './data.js';
 import { genItem, tierFromValue } from './items.js';
 import { toast } from './ui.js';
 
 // キー名は試作のまま（変えると既存のセーブが見えなくなる）。形式の版は中身の v で管理する。
 export const SKEY = 'lootrunner-save-v1';
-export const SAVE_VERSION = 6;
+export const SAVE_VERSION = 7;
 const EXPORT_PREFIX = 'LOOTRUNNER1:';
 const SLOTS = ['weapon', 'head', 'body', 'charm'];
 
@@ -25,7 +25,9 @@ const emptyEquip = () => ({weapon:null, head:null, body:null, charm1:null, charm
 // v3 で増えた欄（素材・所持枠・自動分解・絞り込み・図鑑）
 const v3Fields = () => ({mats:[0,0,0,0,0], invMax:INV_BASE, autoSalv:-1, filter:{slot:'all', r:0}, codex:{u:{}, s:{}}});
 // v4：進み具合。maxDiff：解放した難易度 / cp[難易度]：倒したボスの位置（チェックポイント）/ best[難易度]：最高距離 / diff・start：前回の選択
-const newProg = () => ({maxDiff:1, diff:1, start:0, cp:{1:0}, best:{1:0}, clears:{}, foes:{}});
+const newProg = () => ({maxDiff:1, diff:1, start:0, cp:{1:0}, best:{1:0}, clears:{}, foes:{}, layer:'normal', deep:newDeep()});
+// v7：深層。maxDiff は上限なし。cp は 500m ごと（10000m 未満）。layer：前回えらんだ方（normal / deep）
+export const newDeep = () => ({maxDiff:1, diff:1, start:0, cp:{1:0}, best:{1:0}, clears:{}});
 // v5：やり込み要素。fac：施設のLv / ach：実績（1＝達成・2＝受け取り済み）/ skill：見たスキル・進化・最初のスキル / daily：日替わり / stats：記録
 const FAC_IDS = Object.keys(FAC_MAX);
 export const STAT_KEYS = ['kills', 'gold', 'time', 'dist', 'bosses', 'elites', 'stomps', 'jumps', 'items', 'deaths', 'retreats',
@@ -81,6 +83,10 @@ const MIGRATIONS = {
     const up = Math.max(0, ...[...(d.inv || []), ...Object.values(d.equip || {})].map(it => it && Number.isFinite(it.up) ? it.up : 0));
     st.upMax = up;
     st.t6 = [...(d.inv || []), ...Object.values(d.equip || {})].some(it => it && Array.isArray(it.aff) && it.aff.some(a => a && a.t >= 6)) ? 1 : 0;
+  },
+  // v6 → v7：深層（通常の難易度5を踏破していれば、すぐ遊べる）
+  6(d){
+    if (d.prog && typeof d.prog === 'object'){ d.prog.deep = newDeep(); d.prog.layer = 'normal'; }
   },
   // v5 → v6：設定の欄を増やす（消音はそのまま引き継ぐ）・見た目（称号・マント）
   5(d){
@@ -147,7 +153,19 @@ function sanitize(d){
   const diff = Math.min(maxDiff, Math.max(1, Math.floor(num(pr.diff)) || 1));
   const foes = {};
   for (const [k, v] of Object.entries(obj(pr.foes))) if (typeof k === 'string' && k.length < 20) foes[k] = 1;
-  d.prog = {maxDiff, diff, start:[0, 500, 1000, 1500].includes(pr.start) && pr.start <= cp[diff] ? pr.start : 0, cp, best, clears, foes};
+  // 深層
+  const dp = obj(pr.deep), dMax = Math.min(9999, Math.max(1, Math.floor(num(dp.maxDiff)) || 1));
+  const okCp = v => Number.isInteger(v) && v >= 0 && v < DEEP_LEN && v % 500 === 0;
+  const dcp = {}, dbest = {}, dclears = {};
+  for (let k = 1; k <= dMax; k++){
+    if (obj(dp.cp)[k] !== undefined || k === dMax) dcp[k] = okCp(obj(dp.cp)[k]) ? obj(dp.cp)[k] : 0;
+    if (obj(dp.best)[k] !== undefined || k === dMax) dbest[k] = Math.max(0, num(obj(dp.best)[k]));
+    if (obj(dp.clears)[k]) dclears[k] = Math.max(1, Math.floor(num(obj(dp.clears)[k])));
+  }
+  const dDiff = Math.min(dMax, Math.max(1, Math.floor(num(dp.diff)) || 1));
+  const deep = {maxDiff:dMax, diff:dDiff, start:okCp(dp.start) && dp.start <= (dcp[dDiff] || 0) ? dp.start : 0, cp:dcp, best:dbest, clears:dclears};
+  d.prog = {maxDiff, diff, start:[0, 500, 1000, 1500].includes(pr.start) && pr.start <= cp[diff] ? pr.start : 0, cp, best, clears, foes,
+    layer:pr.layer === 'deep' && clears[DIFF_MAX] ? 'deep' : 'normal', deep};
   // v5
   const fac = obj(d.fac);
   d.fac = Object.fromEntries(FAC_IDS.map(k => [k, Math.min(FAC_MAX[k], Math.max(0, Math.floor(num(fac[k]))))]));

@@ -1,6 +1,6 @@
 // やり込み要素（画面）：施設・実績・記録・日替わりダンジョン
 import { $, fmt } from './util.js';
-import { MATS, ZONES, UNIQUES, BOSSES, RAR, CLEAR_DIST, DIFF_MAX } from './data.js';
+import { MATS, ZONES, UNIQUES, BOSSES, RAR, CLEAR_DIST, DIFF_MAX, DEEP_ZONES, DEEP_LEN } from './data.js';
 import { SAVE, saveGame } from './save.js';
 import { computeStats, powerWith } from './items.js';
 import { closeModal, dialog, closeDialog, toast } from './ui.js';
@@ -8,7 +8,7 @@ import { FACILITIES, TRAIN, facLv, facCost, facEffect, facNext, upgradeFac, canU
   ACH, claimAch, achClaimable, checkAch, rewardText, dailyPlan, dailyToday, dailyStreak, dateKey, DAILY_MODS, DAILY_REWARD,
   CAPES, capeOpen, nextCape, achGot, titleText } from './meta.js';
 import { ACTIVES, PASSIVES, ALL_SKILLS, unlocked, MIN_ON } from './skills.js';
-import { startRun } from './run.js';
+import { startRun, deepOpen } from './run.js';
 import { renderBase, openItem, openSortie, showTab } from './base.js';
 import { icon, itemIcon, costHTML, rewardHTML } from './icons.js';
 import { drawBuilding, stageOf, STAGE_N, campFx, drawStandingHero, FAC_C } from './camp.js';
@@ -60,6 +60,12 @@ export function nextGoal(){
     const b = P.best[md] || 0, i = Math.min(3, Math.floor(b / 500)), boss = BOSSES[ZONES[i].boss];
     return {ic:icon('flag'), t:`${md > 1 ? `難易度${md}：` : ''}${boss.n}を倒す（${(i + 1)*500}m）`,
       d:`今の最高 ${fmt(b)}m${i ? ` ・ ${i*500}m から出撃もできる` : ''}${i === 3 ? ' ・ 倒すと踏破' : ''}`, act:() => openSortie()};
+  }
+  // 深層：次のボス（上限なしなので、ずっとここが目標になる）
+  if (deepOpen()){
+    const Q = P.deep, dm = Q.maxDiff, b = Q.best[dm] || 0, i = Math.min(DEEP_LEN/500 - 1, Math.floor(b / 500)), Z = DEEP_ZONES[Math.floor(i/4)];
+    return {ic:icon('flag'), c:'#b48cff', t:`深層${dm}：${Z.bp}${BOSSES[Z.bosses[i % 4]].n}を倒す（${(i + 1)*500}m）`,
+      d:`今の最高 ${fmt(b)}m / 10000m${i ? ` ・ ${i*500}m から出撃もできる` : ''}`, act:() => { P.layer = 'deep'; P.deep.diff = dm; openSortie(); }};
   }
   // すべての難易度を踏破したら、いちばん近い実績
   const open = ACH.filter(a => !SAVE.ach[a.id]).map(a => [a, Math.min(1, a.v()/a.goal)]).sort((x, y) => y[1] - x[1]);
@@ -205,6 +211,7 @@ export function openRecords(){
       ['出撃', `${fmt(SAVE.runs)}回`], ['冒険した時間', hms(S.time)], ['走った距離', `${(S.dist/1000).toFixed(1)}km`],
       ['力尽きた', `${fmt(S.deaths)}回`], ['撤退', `${fmt(S.retreats)}回`],
       ...diffs.map(d => [`難易度${d}`, `最高 ${fmt(P.best[d] || 0)}m${P.clears[d] ? ` ・ 踏破${P.clears[d]}回` : ''}`]),
+      ...(deepOpen() ? Array.from({length:P.deep.maxDiff}, (_, i) => i + 1).map(d => [`深層 難易度${d}`, `最高 ${fmt(P.deep.best[d] || 0)}m${P.deep.clears[d] ? ` ・ 踏破${P.deep.clears[d]}回` : ''}`]) : []),
     ]],
     ['戦い', [
       ['倒した敵', fmt(S.kills)], ['1回の最多', `${fmt(S.maxKills)}体`], ['エリート', `${fmt(S.elites)}体`],
