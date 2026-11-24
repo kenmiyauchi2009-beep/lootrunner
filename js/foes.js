@@ -66,31 +66,20 @@ export const DEEP_FOES2 = [
 ];
 
 // ---- 追加のボス（11体） ----
-// atk/p2：使う攻撃（run.js）。volley：低い弾と高い弾を交互に速く / quake3：衝撃波3連 / summon：sum の敵を呼ぶ
+// 技はボスごとに専用（bossatk.js の BOSS_SET）
 // shape・c・c2：見た目（foeart.js の drawBossGeneric）
 export const BOSSES2 = {
-  queenbee:    {n:'女王蜂',       w:50, h:46, fly:24, shape:'queen',   c:'#ffc83a', c2:'#2a2218', sum:['bee', 'bee'],
-                atk:['orbs', 'summon', 'charge'], p2:['volley', 'summon', 'charge', 'combo'], hint:'女王蜂：針蜂を呼ぶ。突進は長押しで越える'},
-  sandworm:    {n:'大砂虫',       w:64, h:64, shape:'worm',    c:'#c89a5a', c2:'#7a4a2a',
-                atk:['hop', 'rocks', 'charge'], p2:['quake3', 'boulder', 'charge', 'combo'], hint:'大砂虫：衝撃波が3回続くことがある。リズムよく跳ぶ'},
-  treeking:    {n:'森の古木',     w:66, h:80, shape:'treeboss', c:'#6a4a2a', c2:'#3f7a4a', sum:['owl', 'treant'],
-                atk:['pillars', 'summon', 'orbs'], p2:['pillars', 'volley', 'summon', 'beam'], hint:'森の古木：足元から根（光ったら跳ぶ）。仲間を呼ぶ'},
-  phoenix:     {n:'不死鳥',       w:60, h:50, fly:30, shape:'phoenix', c:'#ff7a2a', c2:'#ffe14d',
-                atk:['breath', 'pillars', 'beam'], p2:['volley', 'breath', 'beam', 'combo'], hint:'不死鳥：火の玉と火柱。光線は高さを見る'},
-  crystalqueen:{n:'結晶の女王',   w:44, h:64, fly:10, shape:'crystalq', c:'#b48cff', c2:'#e8dcff', sum:['shardbat', 'shardbat'],
-                atk:['beam', 'orbs', 'summon'], p2:['volley', 'beam', 'summon', 'combo'], hint:'結晶の女王：光線と弾。結晶コウモリを呼ぶ'},
-  pharaoh:     {n:'ファラオ',     w:46, h:70, shape:'pharaoh', c:'#ffd36b', c2:'#2a6a8a', sum:['mummy', 'scarab'],
-                atk:['summon', 'boulder', 'beam'], p2:['quake3', 'boulder', 'beam', 'summon'], hint:'ファラオ：大岩と光線。ミイラを呼ぶ'},
-  stormlord:   {n:'嵐の王',       w:58, h:52, fly:26, shape:'storm',   c:'#6a7aa0', c2:'#ffe14d',
-                atk:['volley', 'charge', 'beam'], p2:['volley', 'charge', 'beam', 'combo'], hint:'嵐の王：弾を速く撃ち分ける。赤＝跳ぶ／青＝跳ばない'},
-  abysseye:    {n:'深淵の瞳',     w:56, h:56, fly:20, shape:'bigeye',  c:'#f3ead2', c2:'#c83a4a', sum:['shade', 'eyeball'],
-                atk:['beam', 'orbs', 'volley'], p2:['beam', 'volley', 'summon', 'combo'], hint:'深淵の瞳：光線と弾を撃ち分ける。影を呼ぶ'},
-  voidknight:  {n:'虚無の騎士',   w:44, h:72, shape:'knight',  c:'#3a2a6a', c2:'#b48cff',
-                atk:['charge', 'hop', 'beam'], p2:['charge', 'quake3', 'beam', 'combo'], hint:'虚無の騎士：突進と衝撃波。結界はいつも通り武器で割る'},
-  chimera:     {n:'キマイラ',     w:68, h:60, shape:'chimera', c:'#b8784a', c2:'#5a8a4a',
-                atk:['breath', 'charge', 'hop'], p2:['breath', 'quake3', 'charge', 'combo'], hint:'キマイラ：火の玉・突進・衝撃波を使い分ける'},
-  starbeast:   {n:'星喰い',       w:72, h:66, shape:'starbeast', c:'#2a2f7a', c2:'#ffe9a8', sum:['meteorite', 'comet'],
-                atk:['volley', 'beam', 'charge', 'pillars'], p2:['volley', 'beam', 'quake3', 'summon', 'combo'], hint:'星喰い：深層の最奥の主。あらゆる攻撃を使う'},
+  queenbee:    {n:'女王蜂',       w:50, h:46, fly:24, shape:'queen',   c:'#ffc83a', c2:'#2a2218', sum:['bee', 'bee'], hint:'女王蜂：針蜂を呼ぶ。突進は長押しで越える'},
+  sandworm:    {n:'大砂虫',       w:64, h:64, shape:'worm',    c:'#c89a5a', c2:'#7a4a2a', hint:'大砂虫：衝撃波が3回続くことがある。リズムよく跳ぶ'},
+  treeking:    {n:'森の古木',     w:66, h:80, shape:'treeboss', c:'#6a4a2a', c2:'#3f7a4a', sum:['owl', 'treant'], hint:'森の古木：足元から根（光ったら跳ぶ）。仲間を呼ぶ'},
+  phoenix:     {n:'不死鳥',       w:60, h:50, fly:30, shape:'phoenix', c:'#ff7a2a', c2:'#ffe14d', hint:'不死鳥：火の玉と火柱。光線は高さを見る'},
+  crystalqueen:{n:'結晶の女王',   w:44, h:64, fly:10, shape:'crystalq', c:'#b48cff', c2:'#e8dcff', sum:['shardbat', 'shardbat'], hint:'結晶の女王：光線と弾。結晶コウモリを呼ぶ'},
+  pharaoh:     {n:'ファラオ',     w:46, h:70, shape:'pharaoh', c:'#ffd36b', c2:'#2a6a8a', sum:['mummy', 'scarab'], hint:'ファラオ：大岩と光線。ミイラを呼ぶ'},
+  stormlord:   {n:'嵐の王',       w:58, h:52, fly:26, shape:'storm',   c:'#6a7aa0', c2:'#ffe14d', hint:'嵐の王：弾を速く撃ち分ける。赤＝跳ぶ／青＝跳ばない'},
+  abysseye:    {n:'深淵の瞳',     w:56, h:56, fly:20, shape:'bigeye',  c:'#f3ead2', c2:'#c83a4a', sum:['shade', 'eyeball'], hint:'深淵の瞳：光線と弾を撃ち分ける。影を呼ぶ'},
+  voidknight:  {n:'虚無の騎士',   w:44, h:72, shape:'knight',  c:'#3a2a6a', c2:'#b48cff', hint:'虚無の騎士：突進と衝撃波。結界はいつも通り武器で割る'},
+  chimera:     {n:'キマイラ',     w:68, h:60, shape:'chimera', c:'#b8784a', c2:'#5a8a4a', hint:'キマイラ：火の玉・突進・衝撃波を使い分ける'},
+  starbeast:   {n:'星喰い',       w:72, h:66, shape:'starbeast', c:'#2a2f7a', c2:'#ffe9a8', sum:['meteorite', 'comet'], hint:'星喰い：深層の最奥の主。あらゆる攻撃を使う'},
 };
 // 通常の難易度3からのボス（エリアごと）
 export const ZONE_BOSS3 = ['queenbee', 'sandworm', 'treeking', 'phoenix'];

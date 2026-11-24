@@ -5,8 +5,9 @@ import { drawCape, drawHelmet, drawTrim } from './hero.js';
 import { drawSkillIcon } from './skillart.js';
 import { drawFoe2, drawBossGeneric } from './foeart.js';
 import { FOES2 } from './foes.js';
+import { BOSS_ATK } from './bossatk.js';
 import { SAVE } from './save.js';
-import { GY, PX, R, ctx, VW, SCALE, DPR, OY, VTOP, VBOT, zone, zoneIdx, zoneAt, bossName, bossTotal, elv, BOSS_LIMIT, ORB, PILLAR, VENT, ventState, BEAM, CHARGE, WARD } from './run.js';
+import { GY, PX, R, ctx, VW, SCALE, DPR, OY, VTOP, VBOT, zone, zoneIdx, zoneAt, bossName, bossTotal, elv, BOSS_LIMIT, ORB, PILLAR, VENT, ventState, BEAM, CHARGE, WARD, zigY } from './run.js';
 import { ACTIVES, PASSIVES } from './skills.js';
 
 // 見た目だけに使う乱数（ゲームの乱数 Math.random を消費しない）
@@ -301,29 +302,7 @@ export function draw(){
     }
   }
   // 敵の弾
-  for (const s of R.eshots){
-    if (s.kind==='rock'){
-      circ(s.x, s.y, s.r, s.big ? '#7d756a' : '#8b8378');
-      const sp = s.spin || 0, k = s.r / 7;
-      circ(s.x + Math.cos(sp)*3*k, s.y + Math.sin(sp)*3*k, 2*k, '#a9a197'); circ(s.x - Math.cos(sp)*2.5*k, s.y - Math.sin(sp)*2.5*k, 1.5*k, '#6f685e');
-    } else if (s.kind==='orb'){
-      const c = s.fire ? '#ff8a3a' : s.hi ? '#7ab8ff' : '#ff6a9a';
-      glow(s.x + 8, s.y, s.r*1.6, c, 0.35); glow(s.x, s.y, s.r*2.4, c, 0.9); circ(s.x, s.y, s.r*0.6, '#fff');
-    } else if (s.kind==='beam'){
-      const q = s.t / s.max, c = s.hi ? '#9cc8ff' : '#ff8ab0', th = BEAM.th * (0.6 + 0.4*Math.sin(R.t*40)*0.5 + 0.4);
-      ctx.globalAlpha = 0.5*Math.min(1, q*3); ctx.fillStyle = c; ctx.fillRect(L0, s.y - th, s.x1 - L0, th*2);
-      ctx.globalAlpha = Math.min(1, q*3); ctx.fillStyle = '#ffffff'; ctx.fillRect(L0, s.y - th*0.3, s.x1 - L0, th*0.6);
-      ctx.globalAlpha = 1; glow(s.x1, s.y, 18, c, 0.9);
-    } else if (s.kind==='pillar'){
-      if (s.tele > 0){
-        const q = 1 - s.tele / PILLAR.tele, bl = Math.sin(R.t*30) > 0;
-        ctx.fillStyle = `rgba(255,${bl ? 90 : 140},40,${0.35 + 0.5*q})`;
-        ctx.beginPath(); ctx.ellipse(s.x, GY + 1, PILLAR.w/2 + 4, 3 + 2*q, 0, 0, Math.PI*2); ctx.fill();
-        glow(s.x, GY - 2, 10 + 10*q, '#ff6a2a', 0.4 + 0.5*q);
-      } else drawFlame(s.x, PILLAR.w, PILLAR.h, s.act / PILLAR.act);
-    } else { const wg = ctx.createLinearGradient(0, GY - s.h, 0, GY); wg.addColorStop(0,'rgba(255,200,90,0)'); wg.addColorStop(1,'#ffb347');
-      ctx.fillStyle = wg; ctx.fillRect(s.x - s.w/2, GY - s.h, s.w, s.h); }
-  }
+  for (const s of R.eshots) drawEShot(s);
   // 霧（森）。予告の「！」は霧の上に描く
   if (R.fog > 0.02) drawFog();
 
@@ -366,6 +345,15 @@ export function draw(){
     }
   }
   if (R.bossFx) drawBossKill(R.bossFx);
+  // 闇（ボスの技）：自分のまわりだけ見える。予告の線と輪は闇の上に描く
+  if (R.dark > 0){
+    const da = Math.min(1, R.dark*1.5) * 0.88, cx = PX, cy = R.p.y - 15;
+    const dg = ctx.createRadialGradient(cx, cy, 40, cx, cy, 150);
+    dg.addColorStop(0, 'rgba(5,3,12,0)'); dg.addColorStop(1, `rgba(5,3,12,${da})`);
+    ctx.fillStyle = dg; ctx.fillRect(L0, VTOP - 10, VW + 20, VBOT - VTOP + 20);
+    if (R.boss) drawBossTele(R.boss);
+    for (const s of R.eshots) if (s.kind === 'drop' && s.tele > 0) drawEShot(s);
+  }
   // 時の砂：画面を少し紫に
   if (R.sk.slowT > 0){ ctx.globalAlpha = Math.min(0.18, R.sk.slowT*0.3) * (R.sk.slowF < 0.3 ? 1.5 : 1); ctx.fillStyle = '#9a7dff'; ctx.fillRect(L0, VTOP, VW + 20, VBOT - VTOP); ctx.globalAlpha = 1; }
   // ダメージ数字（会心は大きく、出た瞬間に弾む）
@@ -548,35 +536,127 @@ function drawHazards(){
   }
 }
 // ボスの予告
+// 弾の見た目（形 sk：needle 針 / fire 火 / feather 羽根 / crystal 結晶 / bolt 雷 / slash 斬撃 / rock 岩 / sword 剣 / disk 円盤 / star 星）
+function drawShot(x, y, r, sk, c, vx = -1, rot = 0){
+  const dir = vx < 0 ? -1 : 1;
+  if (sk === 'needle'){ ctx.strokeStyle = c || '#ffe14d'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(x - dir*8, y); ctx.lineTo(x + dir*6, y); ctx.stroke(); circ(x + dir*7, y, 1.6, '#fff'); return; }
+  if (sk === 'feather'){ glow(x, y, r*2, c || '#ffb347', 0.6); ctx.fillStyle = c || '#ffb347'; ctx.beginPath(); ctx.ellipse(x, y, r*1.4, r*0.55, dir*0.3, 0, Math.PI*2); ctx.fill(); ctx.strokeStyle = '#fff6c8'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x - r*1.3, y); ctx.lineTo(x + r*1.3, y); ctx.stroke(); return; }
+  if (sk === 'crystal'){ glow(x, y, r*2.2, c || '#c8a6ff', 0.6); ctx.fillStyle = c || '#c8a6ff'; ctx.beginPath(); ctx.moveTo(x - r*1.4, y); ctx.lineTo(x, y - r); ctx.lineTo(x + r*1.4, y); ctx.lineTo(x, y + r); ctx.fill(); return; }
+  if (sk === 'bolt'){ glow(x, y, r*2.4, c || '#ffe14d', 0.8); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x - 6, y - 5); ctx.lineTo(x, y); ctx.lineTo(x - 3, y + 1); ctx.lineTo(x + 5, y + 6); ctx.stroke(); return; }
+  if (sk === 'slash'){ glow(x, y, r*2, c || '#b48cff', 0.6); ctx.strokeStyle = c || '#d8c8ff'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(x + 6, y, r*1.5, Math.PI*0.6, Math.PI*1.4); ctx.stroke(); return; }
+  if (sk === 'rock'){ circ(x, y, r, '#8b8378'); circ(x + 2, y - 2, r*0.35, '#a9a197'); return; }
+  if (sk === 'sword'){ glow(x, y, 12, c || '#cfd3e8', 0.5); ctx.fillStyle = c || '#cfd3e8'; ctx.fillRect(x - 1.5, y - 16, 3, 16); ctx.fillStyle = '#8a7a5a'; ctx.fillRect(x - 5, y - 18, 10, 3); return; }
+  if (sk === 'disk' || sk === 'star'){
+    ctx.save(); ctx.translate(x, y); ctx.rotate(rot); glow(0, 0, r*2.2, c || '#ffd36b', 0.6);
+    if (sk === 'star'){ ctx.fillStyle = c || '#ffe9a8'; ctx.beginPath(); for (let k = 0; k < 10; k++){ const rr2 = k % 2 ? r*0.45 : r*1.2, a = k/10*Math.PI*2; ctx.lineTo(Math.cos(a)*rr2, Math.sin(a)*rr2); } ctx.fill(); }
+    else { circ(0, 0, r, c || '#ffd36b'); ctx.strokeStyle = '#fff6c8'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, r*0.6, 0, Math.PI*1.4); ctx.stroke(); }
+    ctx.restore(); return;
+  }
+  const col = sk === 'fire' ? '#ff8a3a' : c || '#ff6a9a';
+  glow(x - dir*8, y, r*1.6, col, 0.35); glow(x, y, r*2.4, col, 0.9); circ(x, y, r*0.6, '#fff');
+}
+function drawEShot(s){
+  if (s.kind==='rock'){
+    circ(s.x, s.y, s.r, s.big ? '#7d756a' : '#8b8378');
+    const sp = s.spin || 0, k = s.r / 7;
+    circ(s.x + Math.cos(sp)*3*k, s.y + Math.sin(sp)*3*k, 2*k, '#a9a197'); circ(s.x - Math.cos(sp)*2.5*k, s.y - Math.sin(sp)*2.5*k, 1.5*k, '#6f685e');
+  } else if (s.kind==='orb'){
+    const c = s.c ? s.c : s.fire ? '#ff8a3a' : s.hi ? '#7ab8ff' : '#ff6a9a';
+    drawShot(s.x, s.y, s.r, s.sk || (s.fire ? 'fire' : ''), c, s.vx);
+  } else if (s.kind==='zig'){
+    if (s.big){   // 竜巻・渦
+      for (let k = 0; k < 4; k++){ ctx.strokeStyle = s.c || '#cfe8ff'; ctx.globalAlpha = 0.8 - k*0.15; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(s.x + Math.sin(R.t*10 + k)*2, s.y - 8 + k*6, 10 - k*2, 3, 0, 0, Math.PI*2); ctx.stroke(); }
+      ctx.globalAlpha = 1;
+    } else { ctx.fillStyle = s.c || '#5fae4e'; ctx.beginPath(); ctx.ellipse(s.x, s.y, 7, 4, Math.sin(R.t*8 + s.x)*0.8, 0, Math.PI*2); ctx.fill(); }
+  } else if (s.kind==='homing'){
+    if (s.locked && s.x > PX){ orbLine(s.y, s.hi ? '#7ab8ff' : '#ff6a9a', s.x, 0.9); }   // 高さが決まった：線の色で跳ぶ／跳ばない
+    glow(s.x, s.y, 16, s.c || '#9a4aff', 0.7); circ(s.x, s.y, 6, '#1a0a2a'); circ(s.x - 2, s.y, 2.2, s.c || '#ff3a5a');
+  } else if (s.kind==='bounce'){
+    circ(s.x, s.y, s.r, s.c || '#8fe36a'); circ(s.x - s.r*0.3, s.y - s.r*0.3, s.r*0.35, 'rgba(255,255,255,.4)');
+  } else if (s.kind==='drop'){
+    // 予告の輪（だんだん小さく）と、落ちてくる物
+    if (s.tele > 0 || s.y < GY){
+      const q = s.tele > 0 ? 1 - s.tele/s.max : 1, bl = Math.sin(R.t*30) > 0;
+      ctx.strokeStyle = `rgba(255,${bl ? 80 : 140},60,${0.5 + 0.4*q})`; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.ellipse(s.x, GY + 1, 18 - 8*q, 4 - q, 0, 0, Math.PI*2); ctx.stroke();
+    }
+    if (s.tele <= 0) drawShot(s.x, s.y, s.r, s.sk, s.c, 1);
+  } else if (s.kind==='wall'){
+    const g2 = ctx.createLinearGradient(0, GY - s.h, 0, GY); g2.addColorStop(0, (s.c || '#ff7a2a') + '00'); g2.addColorStop(0.3, s.c || '#ff7a2a'); g2.addColorStop(1, s.c || '#ff7a2a');
+    ctx.fillStyle = g2; ctx.fillRect(s.x - s.w/2, GY - s.h, s.w, s.h);
+    glow(s.x, GY - s.h*0.5, s.h*0.5, s.c || '#ff7a2a', 0.35);
+  } else if (s.kind==='spin'){
+    drawShot(s.x, s.y, s.r, s.sk || 'disk', s.c, s.vx, s.rot || 0);
+  } else if (s.kind==='split' || s.kind==='descend'){
+    if (s.kind==='descend'){ ctx.strokeStyle = (s.c || '#ff8adf'); ctx.globalAlpha = 0.4; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(s.x + 18, s.y - 10); ctx.stroke(); ctx.globalAlpha = 1; }
+    drawShot(s.x, s.y, s.r, '', s.c, s.vx);
+  } else if (s.kind==='meteor'){
+    ctx.strokeStyle = 'rgba(255,200,120,.5)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.ellipse(s.x, GY + 1, 22, 5, 0, 0, Math.PI*2); ctx.stroke();
+    glow(s.x, s.y, 26, s.c || '#ff6a2a', 0.8); circ(s.x, s.y, s.r, '#5a3a2a'); circ(s.x - 4, s.y - 4, 4, '#8a5a3a');
+  } else if (s.kind==='beam'){
+    const q = s.t / s.max, c = s.hi ? '#9cc8ff' : '#ff8ab0', th = BEAM.th * (0.6 + 0.4*Math.sin(R.t*40)*0.5 + 0.4);
+    ctx.globalAlpha = 0.5*Math.min(1, q*3); ctx.fillStyle = c; ctx.fillRect(L0, s.y - th, s.x1 - L0, th*2);
+    ctx.globalAlpha = Math.min(1, q*3); ctx.fillStyle = '#ffffff'; ctx.fillRect(L0, s.y - th*0.3, s.x1 - L0, th*0.6);
+    ctx.globalAlpha = 1; glow(s.x1, s.y, 18, c, 0.9);
+  } else if (s.kind==='pillar'){
+    const col = s.root ? '#8a6a3a' : s.tent ? '#a03a6a' : s.c && s.big ? s.c : null;
+    if (s.tele > 0){
+      const q = 1 - s.tele / PILLAR.tele, bl = Math.sin(R.t*30) > 0;
+      ctx.fillStyle = `rgba(255,${bl ? 90 : 140},40,${0.35 + 0.5*q})`;
+      ctx.beginPath(); ctx.ellipse(s.x, GY + 1, PILLAR.w/2 + 4 + (s.big ? 8 : 0), 3 + 2*q, 0, 0, Math.PI*2); ctx.fill();
+      glow(s.x, GY - 2, 10 + 10*q, col || '#ff6a2a', 0.4 + 0.5*q);
+    } else if (col){   // 根・触手・砂の一撃
+      const a = s.act / PILLAR.act, hh = PILLAR.h*(s.big ? 1.3 : 1)*Math.min(1, 1.6 - a);
+      ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(s.x - 9, GY); ctx.quadraticCurveTo(s.x - 4, GY - hh*0.6, s.x, GY - hh); ctx.quadraticCurveTo(s.x + 4, GY - hh*0.6, s.x + 9, GY); ctx.fill();
+    } else drawFlame(s.x, PILLAR.w, PILLAR.h, s.act / PILLAR.act);
+  } else {   // 衝撃波
+    const c = s.c || '#ffb347';
+    const wg = ctx.createLinearGradient(0, GY - s.h, 0, GY); wg.addColorStop(0, c + '00'); wg.addColorStop(1, c);
+    ctx.fillStyle = wg; ctx.fillRect(s.x - s.w/2, GY - s.h, s.w, s.h);
+  }
+}
+// ボスの予告：技名・弾の高さの線・地面の帯・体の帯・足元の輪など（技の中身から決める）
+const LANE_C = {low:'#ff6a9a', high:'#7ab8ff'};
+function teleOf(b, q, a){
+  const x1 = b.x - b.w/2;
+  switch (q.a){
+    case 'wave': {
+      ctx.fillStyle = `rgba(255,60,40,${a})`; ctx.fillRect(L0, GY - 5, b.x - L0, 8);
+      ctx.fillStyle = `rgba(255,220,200,${a})`;
+      for (let x = b.x - 50; x > L0; x -= 34){ ctx.beginPath(); ctx.moveTo(x, GY - 1); ctx.lineTo(x + 9, GY - 6); ctx.lineTo(x + 9, GY + 4); ctx.fill(); }
+      break;
+    }
+    case 'orb': case 'split': orbLine(ORB[q.h || 'low'], LANE_C[q.h || 'low'], x1, a); break;
+    case 'spin': orbLine(ORB.low, LANE_C.low, x1, a); orbLine(ORB.high, LANE_C.high, PX - 20 + 0.001, a*0.4); break;
+    case 'zig': {   // 通り道そのものを点線で（主人公のところが赤＝下を通る：跳ぶ／青＝上を通る：跳ばない）
+      const zx = Math.max(x1, PX + 230);
+      ctx.strokeStyle = (q.m || 2) % 2 ? LANE_C.low : LANE_C.high; ctx.globalAlpha = 0.5 + 0.4*a; ctx.lineWidth = 2; ctx.setLineDash([5, 5]); ctx.beginPath();
+      for (let x = zx; x > PX - 20; x -= 5) ctx.lineTo(x, zigY(zx, x, q.m || 2)); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1; break; }
+    case 'descend': { ctx.strokeStyle = LANE_C.low; ctx.globalAlpha = 0.5 + 0.4*a; ctx.lineWidth = 2; ctx.setLineDash([6, 5]); ctx.beginPath(); ctx.moveTo(x1, ORB.high); ctx.lineTo(PX + 50, ORB.low); ctx.lineTo(PX - 20, ORB.low); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1; break; }
+    case 'homing': glow(x1, b.y - b.h/2, 14, '#ff3a5a', a); break;
+    case 'beam': {
+      const y = BEAM[q.h], c = LANE_C[q.h];
+      ctx.strokeStyle = c; ctx.globalAlpha = 0.4 + 0.5*a; ctx.lineWidth = 4; ctx.setLineDash([10, 6]);
+      ctx.beginPath(); ctx.moveTo(L0, y); ctx.lineTo(x1, y); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+      glow(x1, y, 16, c, 0.9); break;
+    }
+    case 'charge': case 'dive': {
+      const top = (q.a === 'dive' ? GY : GY - b.fly) - b.h*CHARGE.hitH;
+      ctx.fillStyle = `rgba(255,60,40,${0.18 + 0.15*a})`; ctx.fillRect(L0, top, x1 - L0, GY - top);
+      ctx.fillStyle = `rgba(255,220,200,${a})`;
+      for (let x = x1 - 30; x > L0; x -= 40){ const y = (top + GY)/2; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 12, y - 8); ctx.lineTo(x + 12, y + 8); ctx.fill(); }
+      break;
+    }
+    case 'wall': { const top = GY - (q.o.h || 60); ctx.fillStyle = `rgba(255,120,40,${0.15 + 0.15*a})`; ctx.fillRect(x1 - 14, top, 14, GY - top); ctx.fillStyle = `rgba(255,220,200,${a})`; ctx.fillRect(L0, top - 2, x1 - L0, 2); break; }
+    case 'meteor': { ctx.strokeStyle = `rgba(255,120,60,${a})`; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.ellipse(PX + 130, GY + 1, 22, 5, 0, 0, Math.PI*2); ctx.stroke(); break; }
+    case 'drop': case 'pillar': { ctx.strokeStyle = `rgba(255,90,60,${a*0.7})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(PX, GY + 1, 16, 4, 0, 0, Math.PI*2); ctx.stroke(); break; }
+  }
+}
 function drawBossTele(b){
   const a = 0.6 + 0.35*Math.sin(R.t*30);
-  if (b.tele > 0){
-    if (b.next === 'hop' || b.next === 'bighop' || b.next === 'quake3'){
-      ctx.fillStyle = `rgba(255,60,40,${a})`; ctx.fillRect(L0, GY-5, b.x - L0, 8);
-      ctx.fillStyle = `rgba(255,220,200,${a})`;   // 衝撃波が来る向き
-      for (let x = b.x - 50; x > L0; x -= 34){ ctx.beginPath(); ctx.moveTo(x, GY - 1); ctx.lineTo(x + 9, GY - 6); ctx.lineTo(x + 9, GY + 4); ctx.fill(); }
-    }
-    if (b.next === 'breath') orbLine(GY - 12, '#ff8a3a', b.x - b.w/2, a);
-    // 突進：体の高さの帯と矢印（長押しで高く跳ぶ）
-    if (b.next === 'charge'){
-      const top = GY - b.fly - b.h*CHARGE.hitH;
-      ctx.fillStyle = `rgba(255,60,40,${0.18 + 0.15*a})`; ctx.fillRect(L0, top, b.x - b.w/2 - L0, GY - top);
-      ctx.fillStyle = `rgba(255,220,200,${a})`;
-      for (let x = b.x - b.w/2 - 30; x > L0; x -= 40){ const y = (top + GY)/2; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 12, y - 8); ctx.lineTo(x + 12, y + 8); ctx.fill(); }
-    }
-    // 光線：出る高さに太い点線（赤＝低い：跳んで空中に／青＝高い：跳ばない）
-    if (b.next === 'beam'){
-      const y = BEAM[b.beamH], c = b.beamH === 'high' ? '#7ab8ff' : '#ff6a9a';
-      ctx.strokeStyle = c; ctx.globalAlpha = 0.4 + 0.5*a; ctx.lineWidth = 4; ctx.setLineDash([10, 6]);
-      ctx.beginPath(); ctx.moveTo(L0, y); ctx.lineTo(b.x - b.w/2, y); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
-      glow(b.x - b.w/2, y, 12 + 10*(1 - Math.max(0, b.tele)/0.85), c, 0.9);
-    }
-  }
-  // 弾の高さ：もうすぐ撃つ弾の高さに線を出す（赤＝低い：跳ぶ／青＝高い：くぐる）
-  let soon = null;
-  if (b.tele > 0 && (b.next === 'orbs' || b.next === 'volley') && b.tele < 0.5) soon = b.orbH[0];
-  else if (!b.tele && b.q.length && b.q[0].a === 'orb' && b.q[0].at - b.qt < 0.45) soon = b.q[0].h;
-  if (soon) orbLine(ORB[soon], soon === 'high' ? '#7ab8ff' : '#ff6a9a', b.x - b.w/2, a);
+  if (b.tele > 0 && b.plan && b.plan.length) teleOf(b, b.plan[0], a);
+  // 続く動き：もうすぐ来るものだけ線を出す
+  if (!b.tele && b.q && b.q.length && b.q[0].at - b.qt < 0.45 && b.q[0].at > 0) teleOf(b, b.q[0], a);
 }
 function orbLine(y, c, x1, a){
   ctx.strokeStyle = c; ctx.globalAlpha = 0.45 + 0.4*a; ctx.lineWidth = 2; ctx.setLineDash([6, 5]);
@@ -782,11 +862,11 @@ const has = (e, m) => e.elite && e.elite.includes(m);
 function drawBoss(e, F){
   if (e.aura) glow(e.x, e.y - e.h/2, Math.max(e.w, e.h)*1.1, e.aura, 0.4 + 0.15*Math.sin(R.t*3));   // 深層のボスはエリアの光をまとう
   const {x, y, w, h} = e, tele = e.tele > 0 && Math.sin(R.t*30) > 0;
-  const lift = e.tele > 0 && (e.next === 'hop' || e.next === 'bighop') ? -8 * Math.min(1, (0.85 - e.tele) * 3) : 0;
+  const jumpAtk = e.tele > 0 && e.plan && e.plan[0] && e.plan[0].a === 'wave';   // 衝撃波の技：跳ぶ前に身をかがめる
+  const lift = jumpAtk ? -8 * Math.min(1, (0.85 - e.tele) * 3) : 0;
   const hot = e.rage || e.p2;
   if (BOSSES[e.boss].shape){   // 追加のボス（foeart.js）
-    const lift2 = e.tele > 0 && (e.next === 'hop' || e.next === 'bighop' || e.next === 'quake3') ? -8 * Math.min(1, (0.85 - e.tele) * 3) : 0;
-    drawBossGeneric(ctx, e, F, {glow, bang}, {lift:lift2, hot, tele});
+    drawBossGeneric(ctx, e, F, {glow, bang}, {lift, hot, tele});
   } else if (e.boss === 'kingslime'){
     const sq = 1 + Math.sin(e.t*5)*0.05 - (lift ? 0.08 : 0), by = y + lift;
     ctx.fillStyle = F || (tele ? '#a8e08a' : hot ? '#4fae5a' : '#5cc96a');
@@ -807,7 +887,7 @@ function drawBoss(e, F){
     const ec = hot ? '#ff5b3a' : '#7affc8';
     glow(x - 7, by - h + 11, 8, ec, 0.8); glow(x + 6, by - h + 11, 8, ec, 0.8);
     circ(x - 7, by - h + 11, 2.6, '#fff'); circ(x + 6, by - h + 11, 2.6, '#fff');
-    if (e.tele > 0 && e.next === 'boulder') circ(x, by - h - 16, 13, '#7d756a');
+    if (e.tele > 0 && e.next === 'go_boulder') circ(x, by - h - 16, 13, '#7d756a');
   } else if (e.boss === 'witch'){
     // 浮かぶ魔女：長い衣・とんがり帽子・杖
     ctx.fillStyle = F || (tele ? '#9a6ad0' : hot ? '#5a2a7a' : '#4a3270');
@@ -828,10 +908,15 @@ function drawBoss(e, F){
     rr(x - w/2 - 10, y - h + 2, 26, 16, 6, F || '#b8352a');   // 頭
     ctx.fillStyle = '#f3ead2'; ctx.beginPath(); ctx.moveTo(x - w/2 - 8, y - h + 18); ctx.lineTo(x - w/2 - 5, y - h + 23); ctx.lineTo(x - w/2 - 2, y - h + 18); ctx.fill();
     glow(x - w/2 + 4, y - h + 8, 7, '#ffd36b', 0.9); circ(x - w/2 + 4, y - h + 8, 2, '#fff');
-    if (e.tele > 0 && (e.next === 'breath' || e.next === 'pillars')) glow(x - w/2 - 12, y - h + 12, 12, '#ff8a3a', 0.9);
+    if (e.tele > 0 && e.next && e.next.startsWith('dr_')) glow(x - w/2 - 12, y - h + 12, 12, '#ff8a3a', 0.9);
     rr(x - 8, y - 12, 9, 12, 3, '#6a1f1f'); rr(x + 14, y - 12, 9, 12, 3, '#6a1f1f');
   }
   if (e.tele > 0) bang(x, y - h - (e.boss === 'witch' ? 22 : e.boss === 'kingslime' ? 16 : 10) + lift, 22);
+  // 技名（予告のあいだ）
+  if (e.tele > 0 && e.next && BOSS_ATK[e.next]){
+    ctx.textAlign = 'center'; ctx.font = 'bold 11px -apple-system, sans-serif'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.65)';
+    outlined(BOSS_ATK[e.next].n, x, y - h - (e.boss === 'witch' ? 40 : 30) + lift, '#ffe0c8');
+  }
   // 結界：青い泡と、あと何回たたけば割れるか
   if (e.ward){
     const cx = x, cy = y - h/2, r = Math.max(w, h)*0.75, a = Math.min(1, e.ward.t*2);

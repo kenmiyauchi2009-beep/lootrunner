@@ -2,7 +2,7 @@
 // ゲームのファイルを更新したら VERSION を上げる。
 // → 次にアプリを開いたとき裏で新しい版を取得し、その次の起動から新しい版に切り替わる。
 // ファイルを増やしたら ASSETS にも足す（1つでも取得できないとインストールが失敗する）。
-const VERSION = '1.9.1';
+const VERSION = '1.9.2';
 const CACHE = 'lootrunner-' + VERSION;
 const ASSETS = [
   './',
@@ -31,6 +31,7 @@ const ASSETS = [
   'js/skillart.js',
   'js/foes.js',
   'js/foeart.js',
+  'js/bossatk.js',
   'icons/icon-180.png',
   'icons/icon-192.png',
   'icons/icon-512.png',

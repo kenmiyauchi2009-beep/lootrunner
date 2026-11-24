@@ -11,6 +11,7 @@ import { initSkills, updateSkills, onLand, dropGem, openLevelUp, skillSummary, X
 import { dailyPlan, seeded, recordRun, rewardText, claimText, claimShort, DAILY_MODS } from './meta.js';
 import { hideTitle } from './title.js';
 import { FOES2, BOSSES2 } from './foes.js';
+import { BOSS_ATK, BOSS_SET, BOSS_TIPS } from './bossatk.js';
 
 export const VH = 300, GY = 255, PX = 70;
 export let R = null, cv = $('cv'), ctx = cv.getContext('2d');
@@ -298,6 +299,21 @@ export const HINTS = {
 setMeetHint(k => meet(k));
 for (const [k, f] of Object.entries(FOES2)) HINTS[k] = f.hint;
 for (const [k, b] of Object.entries(BOSSES2)) HINTS[k] = b.hint;
+for (const [k, t] of Object.entries(BOSS_TIPS)) HINTS[k] = `${BOSSES[k].n}：${t}`;   // ボスの説明は技に合わせる
+Object.assign(HINTS, {
+  'atk-zig':'ジグザグ弾：点線が通り道。自分のところが赤なら跳ぶ／青なら跳ばない',
+  'atk-homing':'追尾弾：高さを追いかけ、手前で高さが決まる。線が赤なら跳ぶ／青なら跳ばない',
+  'atk-bounce':'跳ねる弾：地面を跳ねてくる。低いときに跳び越える',
+  'atk-drop':'落下：足元に輪が出たら、空から落ちてくる。落ちる瞬間に跳ぶ',
+  'atk-wall':'壁：背の高い壁が迫る。長押しで高く跳ぶ',
+  'atk-spin':'ブーメラン：往きは低い（跳ぶ）、帰りは高い（跳ばない）',
+  'atk-split':'分かれる弾：途中で低い弾2つになる。長く跳んでまとめて越える',
+  'atk-descend':'降りてくる弾：高いところから近くで低くなる。遅めに跳ぶ',
+  'atk-meteor':'隕石：前に落ちて衝撃波が来る。跳ぶ',
+  'atk-dark':'闇：しばらく周りが見えにくい。予告の線と輪を見る',
+  'atk-dive':'急降下：飛んでいるボスが低く突っ込む。長押しで高く跳ぶ',
+  'atk-charge':HINTS.charge, 'atk-beam':HINTS.beam,
+});
 function meet(key){
   const F = SAVE.prog.foes;
   if (F[key] || !HINTS[key]) return;
@@ -400,6 +416,7 @@ export function step(dt){
   if (R.hitstop > 0){ R.hitstop -= dt; return; }   // ヒットストップ中は時間を止める
   if (R.slowmo > 0){ R.slowmo -= dt; dt *= 0.3; }   // ボス撃破のスロー
   if (R.zoneCard && (R.zoneCard.t -= dt) <= 0) R.zoneCard = null;
+  if (R.dark > 0) R.dark -= dt;
   R.healBud = Math.min(R.p.maxHp*HURT.heal, (R.healBud ?? 0) + R.p.maxHp*HURT.heal*dt);   // 倒したときの回復の上限（1秒あたり）
   if (R.bossFx && (R.bossFx.t -= dt) <= 0) R.bossFx = null;
   R.t += dt;
@@ -762,7 +779,7 @@ export const BOMB_R = 44;   // 自爆の範囲（跳べば軽いジャンプで�
 // 避けるのが上手くても、装備の火力が足りなければ先へ進めない。HPが半分を切ると第2形態（攻撃が変わる）
 export const BOSS_RAGE = 40, BOSS_LIMIT = 70;
 // 予告の長さ（秒）
-export const BOSS_TELE = {hop:0.8, bighop:0.85, spit:0.6, rocks:0.8, boulder:0.9, orbs:0.75, summon:0.6, pillars:0.45, breath:0.7, charge:0.95, beam:0.85, volley:0.8, quake3:0.85};
+export const BOSS_TELE = {};   // 予告の秒数は技ごと（bossatk.js）
 // 突進・光線・結界・最後のあがき
 export const CHARGE = {sp:340, back:180, hitH:0.8};          // 速さ・戻る速さ・当たる高さ（体の高さの割合）
 export const BEAM = {low:GY - 9, high:GY - 56, dur:0.55, th:12};   // 低い光線は足元（空中にいれば当たらない）、高い光線は頭の上（跳ぶと当たる）
@@ -814,92 +831,119 @@ function updateBoss(e, dt, realDt = dt){
   e.cd -= dt;
   if (e.combo > 0) e.cd = Math.min(e.cd, 0);   // 連続技：すぐ次の攻撃
   if (e.cd <= 0){
-    const base = (e.p2 ? BOSSES[e.boss].p2 : BOSSES[e.boss].atk).filter(a => !(e.last[0] === a && e.last[1] === a));   // 同じ攻撃は3回続けない
-    let next = pick(base);
-    if (next === 'combo'){ e.combo = 2; R.banner = {t:1.2, txt:'連続攻撃！', c:'#ff8a6b'}; }
-    if (next === 'combo' || e.combo > 0){ e.combo--; next = pick(base.filter(a => a !== 'combo')); }
-    e.next = next; e.last = [e.next, e.last[0]];
-    if (e.next === 'orbs') e.orbH = Array.from({length:e.p2 ? 4 : 3}, () => Math.random() < 0.5 ? 'low' : 'high');
-    if (e.next === 'volley'){ const f = Math.random() < 0.5; e.orbH = Array.from({length:e.p2 ? 6 : 5}, (_, i) => (i % 2 === 0) === f ? 'low' : 'high'); }   // 交互に速く
-    if (e.next === 'beam') e.beamH = Math.random() < 0.55 ? 'low' : 'high';
-    if (e.next === 'charge' || e.next === 'beam') meet(e.next);
-    e.tele = BOSS_TELE[e.next] * (e.rage ? 0.85 : 1) * (e.p2 ? 0.9 : 1) * (e.combo > 0 || e.inCombo ? 0.8 : 1);
+    // 技はボスごとに専用（bossatk.js）。第2形態では技が増え、ときどき2つ続けて来る
+    const set = BOSS_SET[e.boss], pool = (e.p2 ? [...set.p1, ...set.p2] : set.p1).filter(a => !(e.last[0] === a && e.last[1] === a));   // 同じ技は3回続けない
+    if (e.p2 && !(e.combo > 0) && Math.random() < 0.22){ e.combo = 2; R.banner = {t:1.2, txt:'連続攻撃！', c:'#ff8a6b'}; }
+    if (e.combo > 0) e.combo--;
+    e.next = pick(pool); e.last = [e.next, e.last[0]];
+    e.plan = planAttack(e, BOSS_ATK[e.next]);
+    e.tele = BOSS_ATK[e.next].tele * (e.rage ? 0.85 : 1) * (e.p2 ? 0.9 : 1) * (e.combo > 0 || e.inCombo ? 0.8 : 1);
     e.inCombo = e.combo > 0;
     e.cd = Math.max(1.4, 2.4 - (e.lv - R.lvOff)*0.03) / Math.min(2, pow) * (e.p2 ? 0.85 : 1) * (e.last25 ? 0.75 : 1);
     sfx('warn');
   }
 }
+// 技の中身を、予告の前に決めておく（弾の高さなど。予告の線に使う）
+function planAttack(e, A){
+  let alt = Math.random() < 0.5;
+  return A.seq.map(([at, a, o]) => {
+    const q = {at, a, o:o || {}};
+    if (o && o.lane){ q.h = o.lane === 'rand' ? (Math.random() < 0.5 ? 'low' : 'high') : o.lane === 'alt' ? ((alt = !alt) ? 'low' : 'high') : o.lane; }
+    if (a === 'zig') q.m = 2 + Math.floor(Math.random()*2);   // 主人公のところで上（2）か下（3）
+    return q;
+  });
+}
 // 予告が終わったら、攻撃の中身（時間差の行動の列）を積む
 function startAttack(e){
-  const p2 = !!e.p2, Q = [];
-  switch (e.next){
-    case 'hop':    Q.push({at:0, a:'wave'}); break;
-    case 'bighop': Q.push({at:0, a:'wave'}, {at:0.55, a:'wave'}); break;   // 2回跳ぶ（間が短いので連続で）
-    case 'spit':   for (let i = 0; i < (p2 ? 5 : 3); i++) Q.push({at:i*0.35, a:'spawn', type:'mini'}); break;
-    case 'rocks':  for (let i = 0; i < (p2 ? 4 : 3); i++) Q.push({at:i*0.62, a:'rock'}); break;
-    case 'boulder':Q.push({at:0, a:'boulder'}); break;
-    case 'orbs':   e.orbH.forEach((h, i) => Q.push({at:i*(p2 ? 0.5 : 0.6), a:'orb', h})); break;
-    case 'summon': {
-      const sum = BOSSES[e.boss].sum;
-      if (sum){ sum.forEach((t, i) => Q.push({at:i*0.5, a:'spawn', type:t})); if (p2) Q.push({at:sum.length*0.5, a:'spawn', type:sum[0]}); }   // 追加のボス：それぞれの手下
-      else { Q.push({at:0, a:'spawn', type:'ghost'}, {at:0.5, a:'spawn', type:p2 ? 'bat' : 'ghost'}); if (p2) Q.push({at:1.0, a:'spawn', type:'ghost'}); }
-      break;
-    }
-    case 'volley': e.orbH.forEach((h, i) => Q.push({at:i*0.42, a:'orb', h})); break;
-    case 'quake3': for (let i = 0; i < 3; i++) Q.push({at:i*0.62, a:'wave'}); break;
-    case 'pillars':for (let i = 0; i < (p2 ? 3 : 2); i++) Q.push({at:i*0.7, a:'pillar'}); break;
-    case 'breath': for (let i = 0; i < (p2 ? 3 : 2); i++) Q.push({at:i*0.5, a:'fire'}); break;
-    case 'charge': e.charging = {phase:'go', x0:e.x, hit:false}; sfx('boss'); shake(0.2, 3); break;
-    case 'beam':   Q.push({at:0, a:'beam', h:e.beamH}); break;
-  }
-  e.q = Q; e.qt = 0;
+  e.q = (e.plan || []).map(q => ({...q})); e.qt = 0;
+  for (const q of e.q) if (HINTS['atk-' + q.a]) meet('atk-' + q.a);   // 初めて見る動きの説明
 }
 // 突進：自分のいる位置の少し後ろまで一気に走り、ゆっくり戻る。体に当たるとダメージ（高く跳べば越えられる）
+// dive：飛ぶボスが低く降りて突っ込む（戻るときに元の高さへ）
 function updateCharge(e, dt){
   const c = e.charging, p = R.p;
   if (c.phase === 'go'){
     e.x -= CHARGE.sp*dt;
-    if (!c.hit && Math.abs(e.x - PX) < e.w/2 + 6 && p.y > GY - e.fly - e.h*CHARGE.hitH){ c.hit = true; hurtPlayer(e.dmg * (e.rage || 1), 'boss-charge'); }
+    if (c.dive) e.y = Math.min(GY, e.y + 400*dt);
+    if (!c.hit && Math.abs(e.x - PX) < e.w/2 + 6 && p.y > e.y - e.h*CHARGE.hitH){ c.hit = true; hurtPlayer(e.dmg * (e.rage || 1), 'boss-charge'); }
     if (e.x < PX - e.w/2 - 30){ c.phase = 'back'; shake(0.15, 2); sfx('thud'); }
   } else {
     e.x += CHARGE.back*dt;
-    if (e.x >= c.x0){ e.x = c.x0; e.charging = null; }
+    if (c.dive) e.y = Math.max(GY - c.fly, e.y - 200*dt);
+    if (e.x >= c.x0){ e.x = c.x0; e.charging = null; if (c.dive) e.fly = c.fly; }
   }
 }
 // 何発も続く攻撃（岩・弾・火柱・火の玉）は1発あたりを軽く
 const MULTI_HIT = 0.75;
 function bossAct(e, q, pow){
-  const dmg = e.dmg * pow * (q.a === 'wave' || q.a === 'boulder' ? 1 : MULTI_HIT);
+  const o = q.o || {}, x0 = e.x - e.w/2, ey = e.y - e.h/2;
+  const dmg = e.dmg * pow * (['wave', 'boulder', 'wall', 'meteor', 'charge', 'dive', 'beam'].includes(q.a) ? 1 : MULTI_HIT);
+  const src = 'boss-' + q.a;
   switch (q.a){
     case 'wave':
-      R.eshots.push({kind:'wave', x:e.x - e.w/2, y:GY, vx:-240, w:16, h:22, dmg, src:'boss-wave'});
+      R.eshots.push({kind:'wave', x:x0, y:GY, vx:-(o.sp || 240), w:o.w || 16, h:o.h || 22, dmg, src, c:o.c});
       shake(0.25, 4); sfx('stomp'); break;
-    case 'rock': throwRock(e, 0.95, 80, pow * MULTI_HIT); break;
-    case 'boulder':
-      R.eshots.push({kind:'rock', big:true, x:e.x - e.w/2, y:GY - 13, r:13, rolling:true, sp:150, dmg:dmg*1.3, src:'boss-boulder'});
-      shake(0.3, 4); sfx('thud'); break;
     case 'orb':
-      R.eshots.push({kind:'orb', x:e.x - e.w/2, y:ORB[q.h], vx:-ORB.speed, r:ORB.r, dmg, hi:q.h === 'high', src:'boss-orb-' + q.h});
+      R.eshots.push({kind:'orb', x:x0, y:ORB[q.h], vx:-(o.sp || ORB.speed), r:o.r || ORB.r, dmg, hi:q.h === 'high', fire:o.sk === 'fire', sk:o.sk, c:o.c, src:src + '-' + q.h});
+      sfx(o.sk === 'fire' ? 'fire' : 'orb'); break;
+    case 'zig':
+      const zx = Math.max(x0, PX + 230);   // 画面の右のほうから来る（通り道を長くして読みやすく）
+      R.eshots.push({kind:'zig', x:zx, x0:zx, m:q.m || 2, y:ORB.high, vx:-(o.sp || 150), t:0, r:o.big ? 10 : 7, big:!!o.big, c:o.c, dmg, src});
       sfx('orb'); break;
-    case 'fire':
-      R.eshots.push({kind:'orb', fire:true, x:e.x - e.w/2, y:ORB.low, vx:-220, r:8, dmg, src:'boss-fire'});
-      sfx('fire'); break;
+    case 'homing':
+      R.eshots.push({kind:'homing', x:Math.max(x0, PX + 230), y:ey, vx:-(o.sp || 130), r:8, c:o.c, dmg, src});   // 画面の右のほうから来る
+      sfx('orb'); break;
+    case 'bounce':
+      R.eshots.push({kind:'bounce', x:x0, y:GY - (o.r || 8), vx:-(o.sp || 150), vy:-(o.vy || 260), vy0:o.vy || 260, r:o.r || 8, c:o.c, dmg, src});
+      sfx('jump'); break;
+    case 'drop':
+      R.eshots.push({kind:'drop', x:PX, y:VTOP - 30, tele:o.tele || 0.5, max:o.tele || 0.5, r:o.r || 8, sk:o.sk, c:o.c, dmg, src});
+      sfx('warn'); break;
     case 'pillar':
-      R.eshots.push({kind:'pillar', x:PX, tele:PILLAR.tele, act:PILLAR.act, dmg, src:'boss-pillar'});
+      R.eshots.push({kind:'pillar', x:PX, tele:PILLAR.tele*(o.big ? 1.2 : 1), act:PILLAR.act, dmg:dmg*(o.big ? 1.3 : 1), src, c:o.c, big:!!o.big, root:!!o.root, tent:!!o.tent});
       break;
     case 'beam':
-      R.eshots.push({kind:'beam', y:BEAM[q.h], hi:q.h === 'high', x1:e.x - e.w/2, t:BEAM.dur, max:BEAM.dur, dmg:e.dmg * pow, src:'boss-beam-' + q.h});
+      R.eshots.push({kind:'beam', y:BEAM[q.h], hi:q.h === 'high', x1:x0, t:BEAM.dur, max:BEAM.dur, dmg:e.dmg * pow, src:src + '-' + q.h});
       shake(0.15, 2); sfx('zap'); break;
-    case 'spawn': {
-      const m = mkEnemy(q.type, {summon:true});
-      m.x = e.x - e.w/2; if (q.type === 'mini'){ m.x -= 4; }
-      if (q.type === 'ghost'){ m.t = 0; m.ph = 0; m.y = ghostY(m); }   // 低い位置から出る
-      if (FOES2[q.type] && FOES2[q.type].ai === 'swoop'){ m.phase = 'tele'; m.tele = 0.6; }   // 呼ばれた急降下の敵はすぐ予告
+    case 'wall':
+      R.eshots.push({kind:'wall', x:x0, vx:-(o.sp || 180), h:o.h || 60, w:14, c:o.c, dmg, src});
+      shake(0.15, 2); sfx('thud'); break;
+    case 'charge': case 'dive':
+      e.charging = {phase:'go', x0:e.x, hit:false, dive:q.a === 'dive', fly:e.fly};
+      if (q.a === 'dive') e.fly = 0;
+      sfx('boss'); shake(0.2, 3); break;
+    case 'summon': {
+      const m = mkEnemy(o.t, {summon:true});
+      m.x = x0; if (o.t === 'mini'){ m.x -= 4; }
+      if (o.t === 'ghost'){ m.t = 0; m.ph = 0; m.y = ghostY(m); }   // 低い位置から出る
+      if (FOES2[o.t] && FOES2[o.t].ai === 'swoop'){ m.phase = 'tele'; m.tele = 0.6; }   // 呼ばれた急降下の敵はすぐ予告
       R.enemies.push(m); burst(m.x, m.y - m.h/2, '#c9a6ff', 5);
       break;
     }
+    case 'lob': throwRock(e, 0.95, 80, pow * MULTI_HIT); break;
+    case 'boulder':
+      R.eshots.push({kind:'rock', big:true, x:x0, y:GY - (o.r || 13), r:o.r || 13, rolling:true, sp:o.sp || 150, dmg:dmg*1.3, src});
+      shake(0.3, 4); sfx('thud'); break;
+    case 'spin':
+      R.eshots.push({kind:'spin', x:x0, y:ORB.low, vx:-(o.sp || 220), sp:o.sp || 220, back:false, xb:x0, r:9, sk:o.sk, c:o.c, dmg, src});
+      sfx('slash'); break;
+    case 'split':
+      R.eshots.push({kind:'split', x:Math.max(x0, PX + 230), y:ORB.low, vx:-(o.sp || 170), r:8, c:o.c, dmg, src});
+      sfx('orb'); break;
+    case 'descend':
+      R.eshots.push({kind:'descend', x:x0, x0, y:ORB.high, vx:-(o.sp || 170), r:7, c:o.c, dmg, src});
+      sfx('orb'); break;
+    case 'meteor':
+      R.eshots.push({kind:'meteor', x:PX + 130, y:VTOP - 30, vy:520, r:14, c:o.c, dmg, src});
+      sfx('warn'); break;
+    case 'dark':
+      R.dark = Math.max(R.dark || 0, o.dur || 3); sfx('boss'); break;
   }
 }
+// 弾が体に当たったか（弾の中心と半径・主人公の体の高さ30）
+export const zigY = (x0, x, m) => (ORB.low + ORB.high)/2 - (ORB.low - ORB.high)/2 * Math.cos(Math.PI * m * (x0 - x) / Math.max(1, x0 - PX));
+const HOMING_LOCK = 110;   // 追尾弾の高さが決まる距離（主人公の前）。決まったら線が出る（低い＝跳ぶ／高い＝跳ばない）
+const hitBody = s => Math.abs(s.x - PX) < s.r + 8 && s.y + s.r > R.p.y - 30 && s.y - s.r < R.p.y;
 // 敵の弾・ボスの攻撃
 function updateEShots(dt, scroll){
   const p = R.p;
@@ -923,6 +967,66 @@ function updateEShots(dt, scroll){
       s.x += (s.vx - scroll)*dt;
       if (Math.abs(s.x - PX) < s.r + 8 && s.y + s.r > p.y - 30 && s.y - s.r < p.y){ hurtPlayer(s.dmg, s.src); s.dead = true; burst(s.x, s.y, s.fire ? '#ff8a3a' : '#c58bff', 6); }
       if (s.x < -30) s.dead = true;
+    } else if (s.kind==='zig'){
+      // 上下にジグザグ。通り道は距離で決まり、主人公のところで必ず一番上（m が偶数）か一番下（奇数）を通る
+      s.t += dt; s.x += (s.vx - scroll)*dt;
+      s.y = zigY(s.x0, s.x, s.m);
+      if (hitBody(s)){ hurtPlayer(s.dmg, s.src); s.dead = true; burst(s.x, s.y, s.c || '#5fae4e', 6); }
+      if (s.x < -30) s.dead = true;
+    } else if (s.kind==='homing'){
+      // 高さを追いかけ、近くまで来たら高さが決まってまっすぐ飛ぶ（跳んでいるときに決まれば、着地してくぐれる）
+      s.x += (s.vx - scroll)*dt;
+      if (s.x > PX + HOMING_LOCK) s.y += ((p.y - 15) - s.y) * Math.min(1, dt*3);
+      else if (!s.locked){ s.locked = true; s.hi = s.y < GY - 40; }   // 高さが決まる
+      if (hitBody(s)){ hurtPlayer(s.dmg, s.src); s.dead = true; burst(s.x, s.y, s.c || '#9a4aff', 6); }
+      if (s.x < -30) s.dead = true;
+    } else if (s.kind==='bounce'){
+      s.x += (s.vx - scroll)*dt; s.vy += 900*dt; s.y += s.vy*dt;
+      if (s.y >= GY - s.r){ s.y = GY - s.r; s.vy = -s.vy0; }
+      if (hitBody(s)){ hurtPlayer(s.dmg, s.src); s.dead = true; burst(s.x, s.y, s.c || '#8fe36a', 6); }
+      if (s.x < -30) s.dead = true;
+    } else if (s.kind==='drop'){
+      // 足元に輪（予告）→ 空から落ちる。落ちたときに地面近くにいると当たる
+      s.x -= scroll*dt;
+      if (s.tele > 0) s.tele -= dt;
+      else {
+        s.y += 900*dt;
+        // 地面に落ちた瞬間、足が地面の近くにあると当たる（跳んでいればかわせる）
+        if (s.y >= GY){
+          s.dead = true; burst(s.x, GY, s.c || '#fff', 6); sfx('thud');
+          if (Math.abs(s.x - PX) < s.r + 10 && p.y > GY - 22) hurtPlayer(s.dmg, s.src);
+        }
+      }
+    } else if (s.kind==='wall'){
+      s.x += (s.vx - scroll)*dt;
+      if (!s.done && Math.abs(s.x - PX) < s.w/2 + 8 && p.y > GY - s.h){ s.done = true; hurtPlayer(s.dmg, s.src); }
+      if (s.x < -40) s.dead = true;
+    } else if (s.kind==='spin'){
+      // ブーメラン：往きは低く、自分の後ろで折り返して、帰りは高く
+      s.x += (s.vx - scroll)*dt; s.rot = (s.rot || 0) + dt*14;
+      if (!s.back && s.x < PX - 70){ s.back = true; s.vx = s.sp; s.y = ORB.high; s.hit = false; }
+      if (!s.hit && hitBody(s)){ s.hit = true; hurtPlayer(s.dmg, s.src); }
+      if (s.back && s.x > s.xb + 20) s.dead = true;
+    } else if (s.kind==='split'){
+      s.x += (s.vx - scroll)*dt;
+      if (s.x < PX + 140){   // 低い弾2つに分かれる
+        s.dead = true; burst(s.x, s.y, s.c || '#e8c878', 6);
+        for (const dx of [0, 60]) R.eshots.push({kind:'orb', x:s.x + dx, y:ORB.low, vx:s.vx, r:6, dmg:s.dmg, hi:false, c:s.c, src:s.src});
+      }
+      else if (hitBody(s)){ hurtPlayer(s.dmg, s.src); s.dead = true; }
+    } else if (s.kind==='descend'){
+      s.x += (s.vx - scroll)*dt;
+      const q = Math.max(0, Math.min(1, (s.x0 - s.x) / Math.max(1, s.x0 - (PX + 50))));
+      s.y = ORB.high + (ORB.low - ORB.high) * q;
+      if (hitBody(s)){ hurtPlayer(s.dmg, s.src); s.dead = true; burst(s.x, s.y, s.c || '#ff8adf', 6); }
+      if (s.x < -30) s.dead = true;
+    } else if (s.kind==='meteor'){
+      // 前に落ちる → 落ちたところから衝撃波
+      s.y += s.vy*dt;
+      if (s.y >= GY - 6){
+        s.dead = true; burst(s.x, GY - 6, s.c || '#ff6a2a', 12); shake(0.35, 5); sfx('stomp');
+        R.eshots.push({kind:'wave', x:s.x, y:GY, vx:-230, w:16, h:24, dmg:s.dmg, src:s.src + '-wave', c:s.c});
+      }
     } else if (s.kind==='beam'){
       // 光線：しばらく出続ける。低い光線は足が地面近くにあると当たり、高い光線は体が高いところにあると当たる
       s.t -= dt;
@@ -1134,7 +1238,7 @@ function onKill(e){
     R.bossLog.push({id:e.boss, at:R.nextBoss, sec:Math.round(e.fightT), hits:R.bossHits});
     if (!R.bossHits){ R.flawless++; R.banner = {t:2.6, txt:'ノーダメージ撃破！', c:'#7fe8ff'}; }
     R.boss = null;
-    R.eshots = [];
+    R.eshots = []; R.dark = 0;
     R.p.hp = Math.min(R.p.maxHp, R.p.hp + R.p.maxHp*(R.healBoss ? 1 : 0.3));
     const P = SAVE.prog, PP = R.deep ? P.deep : P, b = R.nextBoss;
     if (b >= R.clearDist){
