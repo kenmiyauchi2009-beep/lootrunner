@@ -142,10 +142,11 @@ export const ELITE_MODS = {
 };
 // エリアのボス。atk：使う攻撃（第2形態＝HP50%以下で p2 に変わる）
 export const BOSSES = {
-  kingslime:{n:'キングスライム', w:62, h:50, atk:['hop','spit'],      p2:['bighop','spit','hop']},
-  golem:    {n:'岩石ゴーレム',   w:56, h:70, atk:['rocks','hop'],     p2:['boulder','rocks','bighop']},
-  witch:    {n:'森の魔女',       w:34, h:54, fly:16, atk:['orbs','summon'], p2:['orbs','orbs','summon']},
-  dragon:   {n:'炎竜',           w:66, h:60, atk:['pillars','breath'], p2:['pillars','breath','hop']},
+//   charge：体ごと突っ込む（長押しで高く跳ぶ）/ beam：低い光線（空中にいる）か高い光線（跳ばない）/ combo：攻撃を続けて2つ
+  kingslime:{n:'キングスライム', w:62, h:50, atk:['hop','spit','charge'],      p2:['bighop','spit','charge','combo']},
+  golem:    {n:'岩石ゴーレム',   w:56, h:70, atk:['rocks','hop','charge'],     p2:['boulder','rocks','bighop','beam','combo']},
+  witch:    {n:'森の魔女',       w:34, h:54, fly:16, atk:['orbs','summon','beam'], p2:['orbs','summon','beam','combo']},
+  dragon:   {n:'炎竜',           w:66, h:60, atk:['pillars','breath','charge'], p2:['pillars','breath','beam','charge','combo']},
 };
 
 // ドロップの光の柱（レア度ごと）。h:0 は画面の上まで届く

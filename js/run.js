@@ -188,7 +188,7 @@ export const BOSS_DMG_GROW = 1.12;
 // スキルは数が多く当たるので、これでボスに与えるダメージの約6割がスキル・約4割が装備になる（シミュレーションで確認）
 export const SKILL_RES = {thrower:0.35, shield:0.6, boss:0.1};
 // ボスのHPの倍率（スキルが効くようにした分の調整用）
-export const BOSS_TUNE = {hp:1};
+export const BOSS_TUNE = {hp:1.5};   // スキルが効くようになった分と、新しい攻撃を見せる時間の分、HPを多めに
 const ELITE = {hp:3, dmg:1.3, size:1.25, gold:5, xp:5, chance:0.012, grow:1/150000};   // 1回の出撃で5体くらい
 
 // o.rng：乱数（コースの敵は R.cr を使い、日替わりで同じ並びになるようにする）
@@ -231,6 +231,10 @@ export const HINTS = {
   sand:'流砂：踏むと沈んでダメージ。跳び越える', fog:'霧：遠くが見えにくい。「！」は霧の中でも見える', vent:'火柱：光ったら噴き出す。跳び越える',
   kingslime:'キングスライム：跳ねると衝撃波。小スライムを吐く', golem:'岩石ゴーレム：岩を投げる。第2形態は大岩',
   witch:'森の魔女：低い弾は跳び、高い弾はくぐる', dragon:'炎竜：足元が光ったら火柱。火の玉は跳ぶ',
+  charge:'突進：ボスが体ごと突っ込む。長押しで高く跳んで越える',
+  beam:'光線：赤い線＝低い（跳んで空中にいる）／青い線＝高い（跳ばない）',
+  ward:'結界：スキルがほとんど効かない。武器で3回たたくと割れて、ボスが止まる',
+  last:'最後のあがき：HPが残り少ないと攻撃が速くなる',
 };
 function meet(key){
   const F = SAVE.prog.foes;
@@ -546,7 +550,12 @@ export const BOMB_R = 44;   // 自爆の範囲（跳べば軽いジャンプで�
 // 避けるのが上手くても、装備の火力が足りなければ先へ進めない。HPが半分を切ると第2形態（攻撃が変わる）
 export const BOSS_RAGE = 40, BOSS_LIMIT = 70;
 // 予告の長さ（秒）
-export const BOSS_TELE = {hop:0.8, bighop:0.85, spit:0.6, rocks:0.8, boulder:0.9, orbs:0.75, summon:0.6, pillars:0.45, breath:0.7};
+export const BOSS_TELE = {hop:0.8, bighop:0.85, spit:0.6, rocks:0.8, boulder:0.9, orbs:0.75, summon:0.6, pillars:0.45, breath:0.7, charge:0.95, beam:0.85};
+// 突進・光線・結界・最後のあがき
+export const CHARGE = {sp:340, back:180, hitH:0.8};          // 速さ・戻る速さ・当たる高さ（体の高さの割合）
+export const BEAM = {low:GY - 9, high:GY - 56, dur:0.55, th:12};   // 低い光線は足元（空中にいれば当たらない）、高い光線は頭の上（跳ぶと当たる）
+export const WARD = {hits:3, dur:7, every:13, skill:0.15, stun:1.4, exposed:3, expMul:1.3};
+export const LAST_HP = 0.25;
 export const ORB = {low:GY - 12, high:GY - 62, speed:165, r:7};
 export const PILLAR = {tele:0.75, act:0.2, h:34, w:20};
 // dt：ボスの動き（時の砂で遅くなる）/ realDt：戦いの残り時間に使う実際の時間
@@ -555,8 +564,18 @@ function updateBoss(e, dt, realDt = dt){
   const reach = WTYPES[R.st.type].melee ? R.st.range * (1 + R.st.rangeP/100) + e.w/2 - 8 : 100;
   const stopX = Math.min(VW - 70, PX + Math.max(60, Math.min(100, reach)));
   if (e.fly) e.y = GY - e.fly - Math.sin(R.t*2)*4;
+  if (e.charging){ updateCharge(e, dt); e.fightT += realDt; return; }
   if (e.x > stopX){ e.x -= 60*dt; return; }
   e.fightT += realDt;
+  if (e.exposed > 0) e.exposed -= dt;
+  // 結界（第2形態から）：張っているあいだスキルがほとんど効かない。武器で3回たたくと割れてボスが止まる
+  if (e.ward){ if ((e.ward.t -= realDt) <= 0) e.ward = null; }
+  else if (e.p2 && (e.wardT = (e.wardT ?? 2) - realDt) <= 0 && !e.tele && !e.q.length){
+    e.ward = {hits:WARD.hits, t:WARD.dur}; e.wardT = WARD.every;
+    R.banner = {t:1.8, txt:'結界！ 武器で3回たたく', c:'#8fd8ff'}; meet('ward'); sfx('frost');
+  }
+  // 最後のあがき：HPが残り少ないと攻撃が速くなる
+  if (!e.last25 && e.hp < e.maxHp * LAST_HP){ e.last25 = true; R.banner = {t:2, txt:'最後のあがき！', c:'#ff5b4a'}; meet('last'); shake(0.3, 3); sfx('boss'); }
   if (e.fightT >= BOSS_LIMIT){ R.flash = {c:'#ff3b2f', t:0.6, max:0.6}; shake(0.6, 6); sfx('bosskill'); endRun(false, 'boss'); return; }
   const over = e.fightT - BOSS_RAGE;
   if (over > 0 && !e.rage){ R.banner = {t:2, txt:'ボスが怒った！', c:'#ff5b4a'}; sfx('boss'); shake(0.4, 3); }
@@ -580,12 +599,19 @@ function updateBoss(e, dt, realDt = dt){
     return;
   }
   e.cd -= dt;
+  if (e.combo > 0) e.cd = Math.min(e.cd, 0);   // 連続技：すぐ次の攻撃
   if (e.cd <= 0){
-    const pool = (e.p2 ? BOSSES[e.boss].p2 : BOSSES[e.boss].atk).filter(a => !(e.last[0] === a && e.last[1] === a));   // 同じ攻撃は3回続けない
-    e.next = pick(pool); e.last = [e.next, e.last[0]];
+    const base = (e.p2 ? BOSSES[e.boss].p2 : BOSSES[e.boss].atk).filter(a => !(e.last[0] === a && e.last[1] === a));   // 同じ攻撃は3回続けない
+    let next = pick(base);
+    if (next === 'combo'){ e.combo = 2; R.banner = {t:1.2, txt:'連続攻撃！', c:'#ff8a6b'}; }
+    if (next === 'combo' || e.combo > 0){ e.combo--; next = pick(base.filter(a => a !== 'combo')); }
+    e.next = next; e.last = [e.next, e.last[0]];
     if (e.next === 'orbs') e.orbH = Array.from({length:e.p2 ? 4 : 3}, () => Math.random() < 0.5 ? 'low' : 'high');
-    e.tele = BOSS_TELE[e.next] * (e.rage ? 0.85 : 1) * (e.p2 ? 0.9 : 1);
-    e.cd = Math.max(1.4, 2.4 - (e.lv - R.lvOff)*0.03) / Math.min(2, pow) * (e.p2 ? 0.85 : 1);
+    if (e.next === 'beam') e.beamH = Math.random() < 0.55 ? 'low' : 'high';
+    if (e.next === 'charge' || e.next === 'beam') meet(e.next);
+    e.tele = BOSS_TELE[e.next] * (e.rage ? 0.85 : 1) * (e.p2 ? 0.9 : 1) * (e.combo > 0 || e.inCombo ? 0.8 : 1);
+    e.inCombo = e.combo > 0;
+    e.cd = Math.max(1.4, 2.4 - (e.lv - R.lvOff)*0.03) / Math.min(2, pow) * (e.p2 ? 0.85 : 1) * (e.last25 ? 0.75 : 1);
     sfx('warn');
   }
 }
@@ -602,8 +628,22 @@ function startAttack(e){
     case 'summon': Q.push({at:0, a:'spawn', type:'ghost'}, {at:0.5, a:'spawn', type:p2 ? 'bat' : 'ghost'}); if (p2) Q.push({at:1.0, a:'spawn', type:'ghost'}); break;
     case 'pillars':for (let i = 0; i < (p2 ? 3 : 2); i++) Q.push({at:i*0.7, a:'pillar'}); break;
     case 'breath': for (let i = 0; i < (p2 ? 3 : 2); i++) Q.push({at:i*0.5, a:'fire'}); break;
+    case 'charge': e.charging = {phase:'go', x0:e.x, hit:false}; sfx('boss'); shake(0.2, 3); break;
+    case 'beam':   Q.push({at:0, a:'beam', h:e.beamH}); break;
   }
   e.q = Q; e.qt = 0;
+}
+// 突進：自分のいる位置の少し後ろまで一気に走り、ゆっくり戻る。体に当たるとダメージ（高く跳べば越えられる）
+function updateCharge(e, dt){
+  const c = e.charging, p = R.p;
+  if (c.phase === 'go'){
+    e.x -= CHARGE.sp*dt;
+    if (!c.hit && Math.abs(e.x - PX) < e.w/2 + 6 && p.y > GY - e.fly - e.h*CHARGE.hitH){ c.hit = true; hurtPlayer(e.dmg * (e.rage || 1), 'boss-charge'); }
+    if (e.x < PX - e.w/2 - 30){ c.phase = 'back'; shake(0.15, 2); sfx('thud'); }
+  } else {
+    e.x += CHARGE.back*dt;
+    if (e.x >= c.x0){ e.x = c.x0; e.charging = null; }
+  }
 }
 // 何発も続く攻撃（岩・弾・火柱・火の玉）は1発あたりを軽く
 const MULTI_HIT = 0.75;
@@ -626,6 +666,9 @@ function bossAct(e, q, pow){
     case 'pillar':
       R.eshots.push({kind:'pillar', x:PX, tele:PILLAR.tele, act:PILLAR.act, dmg, src:'boss-pillar'});
       break;
+    case 'beam':
+      R.eshots.push({kind:'beam', y:BEAM[q.h], hi:q.h === 'high', x1:e.x - e.w/2, t:BEAM.dur, max:BEAM.dur, dmg:e.dmg * pow, src:'boss-beam-' + q.h});
+      shake(0.15, 2); sfx('zap'); break;
     case 'spawn': {
       const m = mkEnemy(q.type, {summon:true});
       m.x = e.x - e.w/2; if (q.type === 'mini'){ m.x -= 4; }
@@ -658,6 +701,12 @@ function updateEShots(dt, scroll){
       s.x += (s.vx - scroll)*dt;
       if (Math.abs(s.x - PX) < s.r + 8 && s.y + s.r > p.y - 30 && s.y - s.r < p.y){ hurtPlayer(s.dmg, s.src); s.dead = true; burst(s.x, s.y, s.fire ? '#ff8a3a' : '#c58bff', 6); }
       if (s.x < -30) s.dead = true;
+    } else if (s.kind==='beam'){
+      // 光線：しばらく出続ける。低い光線は足が地面近くにあると当たり、高い光線は体が高いところにあると当たる
+      s.t -= dt;
+      const top = p.y - 30, bot = p.y;
+      if (!s.done && bot > s.y - BEAM.th/2 && top < s.y + BEAM.th/2){ s.done = true; hurtPlayer(s.dmg, s.src); }
+      if (s.t <= 0) s.dead = true;
     } else if (s.kind==='pillar'){
       // 火柱：足元が光り（予告）、そのあと短いあいだ噴き出す
       s.x -= scroll*dt;
@@ -737,12 +786,20 @@ export function hit(e, base, noProc, skill, sCrit){
   if (!alive(e)) return false;
   const st = R.st, U = x => st.uniq.has(x);
   const crit = !skill && Math.random() < st.critC;
-  const res = skill ? (SKILL_RES[e.type] ?? 1) * (e.type === 'boss' && st.uniq.has('archmage') ? 2 : 1) : 1;   // 大魔導の宝珠：ボスに2倍効く
+  const res = skill ? (SKILL_RES[e.type] ?? 1) * (e.type === 'boss' && st.uniq.has('archmage') ? 2 : 1) * (e.ward ? WARD.skill : 1) : 1;   // 大魔導の宝珠：ボスに2倍効く／結界：スキルはほとんど効かない
   if (res === 0) return false;
   let mul = 1;
   if (!skill){
     if (R.p.y < GY - 2) mul *= 1 + st.airAtk/100;
     if (e.type === 'boss') mul *= 1 + st.bossDmg/100;
+    if (e.type === 'boss' && e.ward && !(e.wardHitT > R.t)){   // 結界を武器でたたく（同じ攻撃で何回も数えない）
+      e.wardHitT = R.t + 0.12;
+      if (--e.ward.hits <= 0){
+        e.ward = null; e.pause = WARD.stun; e.exposed = WARD.exposed; e.q = []; e.tele = 0; e.charging = null;
+        R.banner = {t:1.6, txt:'結界を割った！', c:'#8fd8ff'}; R.fx.push({kind:'ring', x:e.x, y:e.y - e.h/2, r:e.w, t:0.4, max:0.4, c:'143,216,255'});
+        shake(0.3, 4); sfx('crit');
+      } else { R.fx.push({kind:'ring', x:e.x, y:e.y - e.h/2, r:e.w*0.7, t:0.2, max:0.2, c:'143,216,255'}); sfx('frost'); }
+    }
     if (e.hp >= e.maxHp) mul *= 1 + st.firstHit/100;
     if (crit && e.type === 'boss' && U('hawk')) mul *= 1.5;
     if (R.sk.slowT > 0) mul *= R.sk.evo.time ? 1.4 : 1.25;   // 時の砂：遅くなっている敵には装備の攻撃もよく効く
@@ -753,6 +810,7 @@ export function hit(e, base, noProc, skill, sCrit){
     }
   }
   if (skill && R.sk.slowT > 0) mul *= R.sk.evo.time ? 1.4 : 1.25;
+  if (e.exposed > 0) mul *= WARD.expMul;   // 結界を割ったあとは、しばらく何でもよく効く
   // ボスへのスキル：スキルの威力は雑魚のHP（Lvごとに×1.3）に合わせて伸びるが、ボスのHPは×1.22でしか伸びない。
   // そのままだと奥のボスほどスキルで一瞬で溶けるので、最初のボス（敵Lv6）を基準にその差を打ち消す
   if (skill && e.type === 'boss') mul *= Math.pow(BOSS_GROW / GROW.hp, e.lv - R.lvOff - 6);

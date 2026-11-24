@@ -4,7 +4,7 @@ import { RAR, DROP_FX, ELITE_MODS, BOSSES, ZONES } from './data.js';
 import { drawCape, drawHelmet, drawTrim } from './hero.js';
 import { drawSkillIcon } from './skillart.js';
 import { SAVE } from './save.js';
-import { GY, PX, R, ctx, VW, SCALE, DPR, OY, VTOP, VBOT, zone, zoneIdx, elv, BOSS_LIMIT, ORB, PILLAR, VENT, ventState } from './run.js';
+import { GY, PX, R, ctx, VW, SCALE, DPR, OY, VTOP, VBOT, zone, zoneIdx, elv, BOSS_LIMIT, ORB, PILLAR, VENT, ventState, BEAM, CHARGE, WARD } from './run.js';
 import { ACTIVES, PASSIVES } from './skills.js';
 
 // 見た目だけに使う乱数（ゲームの乱数 Math.random を消費しない）
@@ -235,6 +235,11 @@ export function draw(){
     } else if (s.kind==='orb'){
       const c = s.fire ? '#ff8a3a' : s.hi ? '#7ab8ff' : '#ff6a9a';
       glow(s.x + 8, s.y, s.r*1.6, c, 0.35); glow(s.x, s.y, s.r*2.4, c, 0.9); circ(s.x, s.y, s.r*0.6, '#fff');
+    } else if (s.kind==='beam'){
+      const q = s.t / s.max, c = s.hi ? '#9cc8ff' : '#ff8ab0', th = BEAM.th * (0.6 + 0.4*Math.sin(R.t*40)*0.5 + 0.4);
+      ctx.globalAlpha = 0.5*Math.min(1, q*3); ctx.fillStyle = c; ctx.fillRect(-10, s.y - th, s.x1 + 10, th*2);
+      ctx.globalAlpha = Math.min(1, q*3); ctx.fillStyle = '#ffffff'; ctx.fillRect(-10, s.y - th*0.3, s.x1 + 10, th*0.6);
+      ctx.globalAlpha = 1; glow(s.x1, s.y, 18, c, 0.9);
     } else if (s.kind==='pillar'){
       if (s.tele > 0){
         const q = 1 - s.tele / PILLAR.tele, bl = Math.sin(R.t*30) > 0;
@@ -478,6 +483,20 @@ function drawBossTele(b){
       for (let x = b.x - 50; x > 0; x -= 34){ ctx.beginPath(); ctx.moveTo(x, GY - 1); ctx.lineTo(x + 9, GY - 6); ctx.lineTo(x + 9, GY + 4); ctx.fill(); }
     }
     if (b.next === 'breath') orbLine(GY - 12, '#ff8a3a', b.x - b.w/2, a);
+    // 突進：体の高さの帯と矢印（長押しで高く跳ぶ）
+    if (b.next === 'charge'){
+      const top = GY - b.fly - b.h*CHARGE.hitH;
+      ctx.fillStyle = `rgba(255,60,40,${0.18 + 0.15*a})`; ctx.fillRect(-10, top, b.x - b.w/2 + 10, GY - top);
+      ctx.fillStyle = `rgba(255,220,200,${a})`;
+      for (let x = b.x - b.w/2 - 30; x > 0; x -= 40){ const y = (top + GY)/2; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 12, y - 8); ctx.lineTo(x + 12, y + 8); ctx.fill(); }
+    }
+    // 光線：出る高さに太い点線（赤＝低い：跳んで空中に／青＝高い：跳ばない）
+    if (b.next === 'beam'){
+      const y = BEAM[b.beamH], c = b.beamH === 'high' ? '#7ab8ff' : '#ff6a9a';
+      ctx.strokeStyle = c; ctx.globalAlpha = 0.4 + 0.5*a; ctx.lineWidth = 4; ctx.setLineDash([10, 6]);
+      ctx.beginPath(); ctx.moveTo(-10, y); ctx.lineTo(b.x - b.w/2, y); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+      glow(b.x - b.w/2, y, 12 + 10*(1 - Math.max(0, b.tele)/0.85), c, 0.9);
+    }
   }
   // 弾の高さ：もうすぐ撃つ弾の高さに線を出す（赤＝低い：跳ぶ／青＝高い：くぐる）
   let soon = null;
@@ -690,6 +709,14 @@ function drawBoss(e, F){
     rr(x - 8, y - 12, 9, 12, 3, '#6a1f1f'); rr(x + 14, y - 12, 9, 12, 3, '#6a1f1f');
   }
   if (e.tele > 0) bang(x, y - h - (e.boss === 'witch' ? 22 : e.boss === 'kingslime' ? 16 : 10) + lift, 22);
+  // 結界：青い泡と、あと何回たたけば割れるか
+  if (e.ward){
+    const cx = x, cy = y - h/2, r = Math.max(w, h)*0.75, a = Math.min(1, e.ward.t*2);
+    glow(cx, cy, r*1.3, '#8fd8ff', 0.35*a);
+    ctx.strokeStyle = `rgba(160,225,255,${0.8*a})`; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(cx, cy, r + Math.sin(R.t*6)*1.5, 0, Math.PI*2); ctx.stroke();
+    for (let k = 0; k < WARD.hits; k++){ ctx.fillStyle = k < e.ward.hits ? '#bfe8ff' : 'rgba(255,255,255,.2)'; ctx.beginPath(); ctx.arc(cx - (WARD.hits - 1)*5 + k*10, cy - r - 8, 3.2, 0, Math.PI*2); ctx.fill(); }
+  }
+  if (e.exposed > 0 && Math.sin(R.t*20) > 0){ ctx.fillStyle = '#fff6c8'; ctx.fillRect(x - w/2 + Math.random()*w, y - h*Math.random(), 2.5, 2.5); }
 }
 
 

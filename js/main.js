@@ -17,7 +17,7 @@ import * as META from './meta.js';
 import { openFacilities, openAchievements, openRecords, openDaily, openLook, nextGoal } from './hub.js';
 
 // 版の番号（sw.js の VERSION と同じにする）
-export const APP_VERSION = '1.7.5';
+export const APP_VERSION = '1.7.6';
 const loaded = loadGame();
 META.initLook();
 applySettings();
