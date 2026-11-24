@@ -24,6 +24,7 @@ const MAX_FX = 400;
 export function sizeCanvas(){
   const stage = $('stage');
   const w = Math.max(1, stage.clientWidth), h = Math.max(1, stage.clientHeight);
+  sizedW = stage.clientWidth; sizedH = stage.clientHeight;
   DPR = Math.min(SAVE.settings.eco ? 1 : 2, window.devicePixelRatio || 1);
   cv.width = Math.round(w*DPR); cv.height = Math.round(h*DPR);
   // 縦持ち：横幅250ぶんを映して大きく見せ、地面を下から約3割の位置に置いてその下をログ欄にする
@@ -45,7 +46,18 @@ export function sizeCanvas(){
   feed.classList.toggle('land', !portrait);
   const f = $('feed'); while (f.children.length > feedMax) f.lastChild.remove();
 }
-window.addEventListener('resize', () => { if (R) sizeCanvas(); });
+// 画面の向きが変わったら測り直す。iOS は resize の時点ではまだ古い大きさのことがあるので、
+// 実際に大きさが変わったとき（ResizeObserver）と、少し遅れてもう一度測る。止まっているあいだも1枚描き直す
+let sizedW = 0, sizedH = 0;
+function resizeNow(){
+  if (!R) return;
+  const st = $('stage'), w = st.clientWidth, h = st.clientHeight;
+  if (!w || !h || (w === sizedW && h === sizedH)) return;
+  sizeCanvas(); draw();
+}
+window.addEventListener('resize', () => { resizeNow(); setTimeout(resizeNow, 250); setTimeout(resizeNow, 700); });
+window.addEventListener('orientationchange', () => { setTimeout(resizeNow, 250); setTimeout(resizeNow, 700); });
+if (window.ResizeObserver) new ResizeObserver(resizeNow).observe($('stage'));
 
 // チェックポイントから出撃したときの補い：そこまで走っていれば上がっていたスキルのレベルと、大群の育ち具合（経過時間の換算）
 export const CP_CATCHUP = {500:{lv:5, t:105}, 1000:{lv:8, t:210}, 1500:{lv:11, t:316}};   // シミュレーションで測った中央値
@@ -119,6 +131,8 @@ function loop(now){
   if (!R) return;
   if (SAVE.settings.eco && (skipOdd = !skipOdd) && now - lastT < 30){ rafId = requestAnimationFrame(loop); return; }
   const dt = Math.max(0, Math.min(0.05, (now - lastT)/1000)); lastT = now;   // 最初のフレームは時刻が戻ることがある
+  const st = $('stage');
+  if (st.clientWidth !== sizedW || st.clientHeight !== sizedH) sizeCanvas();   // 念のため毎フレーム大きさを確かめる（読むだけなので軽い）
   const still = R.paused || R.levelup || (R.over && now - R.overAt > 900);
   if (!R.paused && !R.over) step(dt);
   draw();

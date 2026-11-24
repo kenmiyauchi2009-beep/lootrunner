@@ -166,7 +166,9 @@ let active = () => false;   // 動かしてよいか（拠点のタブが見え�
 
 export function setupCamp(canvas, isActive){
   cv = canvas; cx = cv.getContext('2d'); active = isActive;
-  window.addEventListener('resize', () => { if (active()) drawCamp(); });
+  const redraw = () => { if (active()) drawCamp(); };
+  window.addEventListener('resize', () => { redraw(); setTimeout(redraw, 250); setTimeout(redraw, 700); });
+  if (window.ResizeObserver) new ResizeObserver(redraw).observe(cv);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) kickCamp(); });
 }
 export function campHit(px, py){

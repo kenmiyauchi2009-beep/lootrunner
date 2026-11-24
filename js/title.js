@@ -73,7 +73,9 @@ export function showTitle(version){
   $('titleVer').textContent = version ? `版 ${version}` : '';
   size(); frame();
   if (!SAVE.settings.eco) tick();
-  window.addEventListener('resize', () => { if (!el.classList.contains('hidden')){ size(); frame(); } });
+  const re = () => { if (!el.classList.contains('hidden')){ size(); frame(); } };
+  window.addEventListener('resize', () => { re(); setTimeout(re, 250); setTimeout(re, 700); });
+  if (window.ResizeObserver) new ResizeObserver(re).observe(cv);
   document.addEventListener('visibilitychange', () => { if (!document.hidden && !el.classList.contains('hidden') && !timer && !SAVE.settings.eco) tick(); });
   el.addEventListener('pointerdown', start, {once:true});
   document.addEventListener('keydown', start, {once:true});
