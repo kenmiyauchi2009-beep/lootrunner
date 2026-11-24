@@ -3,7 +3,7 @@ import { $ } from './util.js';
 import { genItem, computeStats, powerWith, equipKeyFor, smithUpgrade, smithReroll, smithValue, smithLock, salvage, upgradeCost, valueCost, affGrade } from './items.js';
 import { SAVE, SAVE_VERSION, loadGame, newSave, saveGame, migrate, exportText, parseImport, applySave, resetSave } from './save.js';
 import { renderBase, openItem, equipItem, openCodex } from './base.js';
-import { R, drop, SKILL_RES, BOSS_TUNE, startRun, toBase, step, jump, releaseJump, JUMP, BAT_LANE, ROLL_SPEED, mkEnemy, EB, GHOST, ghostY, ORB, PILLAR, VENT, ventState, BOSS_TELE, CP_CATCHUP, elv } from './run.js';
+import { R, drop, SKILL_RES, BOSS_TUNE, offerResume, saveRunSnap, loadRunSnap, resumeRun, startRun, toBase, step, jump, releaseJump, JUMP, BAT_LANE, ROLL_SPEED, mkEnemy, EB, GHOST, ghostY, ORB, PILLAR, VENT, ventState, BOSS_TELE, CP_CATCHUP, elv } from './run.js';
 import * as DATA from './data.js';
 import { draw } from './render.js';
 import { toast } from './ui.js';
@@ -17,13 +17,14 @@ import * as META from './meta.js';
 import { openFacilities, openAchievements, openRecords, openDaily, openLook, nextGoal } from './hub.js';
 
 // 版の番号（sw.js の VERSION と同じにする）
-export const APP_VERSION = '1.7.3';
+export const APP_VERSION = '1.7.4';
 const loaded = loadGame();
 META.initLook();
 applySettings();
 playBgm('base');   // 音が使えるようになったら（タイトルをタップしたら）鳴り始める
 renderBase();
 showTitle(APP_VERSION);
+offerResume();   // 途中の冒険があれば「続きから」を出す（タイトルの下に出しておく）
 saveGame();   // 移行した形式をすぐ書き戻す
 if (loaded === 'broken') toast('セーブデータを読めなかったため、新しく始めました（元のデータは別名で保管）');
 
@@ -36,7 +37,7 @@ window.addEventListener('pagehide', saveGame);
 
 setupOffline();
 
-window.T = { get SAVE(){ return SAVE; }, get R(){ return R; }, drop, SKILL_RES, BOSS_TUNE, startRun, toBase, genItem, computeStats, renderBase, step, draw, newSave, saveGame, openItem, jump, releaseJump, JUMP, BAT_LANE, ROLL_SPEED, pickSkill, ACTIVES, PASSIVES, equipItem,
+window.T = { get SAVE(){ return SAVE; }, get R(){ return R; }, drop, SKILL_RES, BOSS_TUNE, saveRunSnap, loadRunSnap, resumeRun, offerResume, startRun, toBase, genItem, computeStats, renderBase, step, draw, newSave, saveGame, openItem, jump, releaseJump, JUMP, BAT_LANE, ROLL_SPEED, pickSkill, ACTIVES, PASSIVES, equipItem,
   SAVE_VERSION, migrate, exportText, parseImport, applySave, resetSave, openSettings,
   powerWith, equipKeyFor, smithUpgrade, smithReroll, smithValue, smithLock, salvage, upgradeCost, valueCost, affGrade, openCodex,
   mkEnemy, EB, GHOST, ghostY, ORB, PILLAR, VENT, ventState, BOSS_TELE, CP_CATCHUP, elv, DATA,

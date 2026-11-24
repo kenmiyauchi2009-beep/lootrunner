@@ -63,6 +63,8 @@ if (window.ResizeObserver) new ResizeObserver(resizeNow).observe($('stage'));
 export const CP_CATCHUP = {500:{lv:5, t:105}, 1000:{lv:8, t:210}, 1500:{lv:11, t:316}};   // シミュレーションで測った中央値
 
 // opt：{diff, start}（省略すると前回の選択）/ {daily:true}：日替わりダンジョン（日付で決まるコース。opt.key で日付を指定できる）
+// 日替わりのコースの乱数：何回使ったかを数える（途中から再開するとき、同じところまで進めるため）
+function countRng(f){ let n = 0; const g = () => (n++, f()); g.count = () => n; return g; }
 export function startRun(opt = {}){
   unlockAudio();
   const P = SAVE.prog;
@@ -81,7 +83,7 @@ export function startRun(opt = {}){
        shake:0, shakeAmp:0, hitstop:0, flash:null, hurtFx:0, hints:[], hint:null, eliteKills:0, flawless:0, bossHits:0,
        banner:{t:2.4, txt:''},
        // 日替わり：コースの乱数（敵の並び・仕掛け）は日付で決まる列を使う。条件で倍率が変わる
-       daily, zoneOrder:daily ? daily.zones : null, cr:daily ? seeded(daily.seed) : Math.random,
+       daily, zoneOrder:daily ? daily.zones : null, cr:daily ? countRng(seeded(daily.seed)) : Math.random,
        goldMul:1, lootMul:1, xpMul:1, healBoss:false, foeSpd:1, eliteMul:1, hordeEvery:HORDE.every, fogAll:0};
   if (daily){
     const M = new Set(daily.mods);
@@ -100,8 +102,11 @@ export function startRun(opt = {}){
   R.zoneCard = {t:2.6, max:2.6, i:zoneIdx(), sub:daily ? '日替わりダンジョン' : diff > 1 ? `難易度${diff}` : '', from:null};
   initSkills();
   applyPassives();
-  if (start) catchUp(CP_CATCHUP[start].lv);
-  if (st.uniq.has('sage')) R.sk.pending++;   // 賢者の冠：出撃してすぐスキルを1つ選べる
+  if (opt.resume) applySnap(opt.resume);
+  else {
+    if (start) catchUp(CP_CATCHUP[start].lv);
+    if (st.uniq.has('sage')) R.sk.pending++;   // 賢者の冠：出撃してすぐスキルを1つ選べる
+  }
   saveGame();
   hideTitle();
   $('base').classList.add('hidden'); closeModal(); closeDialog();
@@ -112,9 +117,10 @@ export function startRun(opt = {}){
   sizeCanvas();
   lastT = performance.now();
   rafId = 0; kick();
-  playBgm('zone' + (R.zoneOrder ? R.zoneOrder[0] : zoneIdx()));
+  playBgm('zone' + (R.zoneOrder ? R.zoneOrder[zoneIdx()] : zoneIdx()));
 }
 export function toBase(){
+  clearRunSnap();
   cancelAnimationFrame(rafId); rafId = 0; R = null;
   $('run').classList.add('hidden'); $('base').classList.remove('hidden');
   closeDialog(); renderBase();
@@ -458,7 +464,7 @@ export function step(dt){
   R.fx = R.fx.filter(f => f.t > 0);
   for (const t of R.texts) t.t -= dt;
   R.texts = R.texts.filter(t => t.t > 0);
-  if (R.sk.pending > 0 && !R.over) openLevelUp();
+  if (R.sk.pending > 0 && !R.over) openLevelUp(!!R.sk.choices);   // 再開したとき：中断前に出ていた3枚をそのまま出す
   // 定期保存は main.js の自動保存（5秒ごと）が行う
 }
 
@@ -857,6 +863,7 @@ function onKill(e){
       }
       saveGame();
       R.clearT = 1.2;   // 少し余韻を見せてから結果へ（step の中で数える）
+      clearRunSnap();   // 踏破したあとに中断しても、同じボスがもう一度出ないように
       R.banner = {t:3, txt:'踏破！', c:'#ffd36b'};
       return;
     }
@@ -867,6 +874,7 @@ function onKill(e){
     R.zoneCard = {t:3.4, max:3.4, delay:1.0, i:zoneIdx(), sub:`${R.nextBoss}m にボス`, from};
     if (!R.bossHits) R.banner = {t:2.6, txt:'ノーダメージ撃破！', c:'#7fe8ff'};
     playBgm('zone' + (R.zoneOrder ? R.zoneOrder[zoneIdx()] : zoneIdx()), 1.5);
+    saveRunSnap();   // 倒したボスがもう一度出ないよう、すぐ記録する
     saveGame();
   } else {
     // 倒したときの小さなヒットストップは0.35秒に1回まで。
@@ -997,6 +1005,7 @@ export function burst(x, y, c, n){
 }
 
 function endRun(retreat, reason){
+  clearRunSnap();
   R.over = true; R.overAt = performance.now(); kick(); R.endReason = retreat ? 'retreat' : reason || 'dead';
   SAVE.runs++;
   const dist = Math.floor(R.dist), P = SAVE.prog;
@@ -1060,7 +1069,84 @@ export function toggleMute(){
 
 $('pauseBtn').onclick = pauseRun;
 $('muteBtn').onclick = toggleMute;
-document.addEventListener('visibilitychange', () => { if (document.hidden) pauseRun(); });   // 保存は main.js
+document.addEventListener('visibilitychange', () => { if (document.hidden){ pauseRun(); saveRunSnap(); } });   // セーブの保存は main.js
+window.addEventListener('pagehide', saveRunSnap);
+setInterval(saveRunSnap, 3000);
+
+// ---------- 途中から再開 ----------
+// iPhone は裏に回したアプリを、時間がたつと閉じてしまう。冒険の状態を3秒ごと・裏に回ったとき・ボスを倒したときに別の場所へ保存し、
+// 次に起動したら「続きから」を出す。拾った装備・ゴールドは拾った時点でセーブに入っているので、ここでは距離・HP・スキル・記録の数を残す。
+// 画面にいた敵は戻らない（ボス戦の途中なら、ボスは最初から）。
+const RUN_KEY = 'lootrunner-run', SNAP_V = 1;
+export function saveRunSnap(){
+  if (!R || R.over || R.clearT > 0) return;
+  const S = R.sk;
+  const snap = {v:SNAP_V, at:Date.now(), diff:R.diff, start:R.start, daily:R.daily ? R.daily.key : null, crN:R.cr.count ? R.cr.count() : 0,
+    px:R.px, t:R.t, tOff:R.tOff, nextBoss:R.nextBoss, hordeT:R.hordeT, hp:R.p.hp, revived:R.p.revived,
+    gold:R.gold, kills:R.kills, stomps:R.stomps, jumpsUsed:R.jumpsUsed, elites:R.elites, eliteKills:R.eliteKills, flawless:R.flawless,
+    salv:R.salv || 0, evos:R.evos || 0, blocked:R.blocked || 0, bossLog:R.bossLog, hurts:R.hurts, loot:R.loot.map(i => i.id), fullWarn:!!R.fullWarn,
+    sk:{lv:S.lv, xp:S.xp, need:S.need, act:S.act, pas:S.pas, evo:S.evo, rerolls:S.rerolls, picks:S.picks, pending:S.pending, shield:S.shield, choices:S.choices}};
+  try { localStorage.setItem(RUN_KEY, JSON.stringify(snap)); } catch(e){}
+}
+export function loadRunSnap(){
+  let s = null;
+  try { s = JSON.parse(localStorage.getItem(RUN_KEY)); } catch(e){ return null; }
+  const P = SAVE.prog;
+  if (!s || s.v !== SNAP_V || !Number.isFinite(s.px) || !s.sk || typeof s.sk.act !== 'object') return null;
+  if (!(s.diff >= 1 && s.diff <= P.maxDiff) && !s.daily) return null;
+  return s;
+}
+export function clearRunSnap(){ try { localStorage.removeItem(RUN_KEY); } catch(e){} }
+// 保存しておいた状態から冒険を続ける
+export function resumeRun(s){
+  startRun(s.daily ? {daily:true, key:s.daily, resume:s} : {diff:s.diff, start:s.start, resume:s});
+}
+function applySnap(s){
+  const num = (x, d = 0) => Number.isFinite(x) ? x : d;
+  Object.assign(R, {px:s.px, dist:s.px/25, t:num(s.t), tOff:num(s.tOff), nextBoss:num(s.nextBoss, R.nextBoss), hordeT:num(s.hordeT, R.hordeT),
+    gold:num(s.gold), kills:num(s.kills), stomps:num(s.stomps), jumpsUsed:num(s.jumpsUsed), elites:num(s.elites), eliteKills:num(s.eliteKills),
+    flawless:num(s.flawless), salv:num(s.salv), evos:num(s.evos), blocked:num(s.blocked),
+    bossLog:Array.isArray(s.bossLog) ? s.bossLog : [], hurts:s.hurts && typeof s.hurts === 'object' ? s.hurts : {}, fullWarn:!!s.fullWarn, resumed:true});
+  const items = [...SAVE.inv, ...Object.values(SAVE.equip).filter(Boolean)];
+  R.loot = (Array.isArray(s.loot) ? s.loot : []).map(id => items.find(i => i.id === id)).filter(Boolean);
+  R.p.hp = Math.min(R.p.maxHp, Math.max(1, num(s.hp, R.p.maxHp))); R.p.revived = !!s.revived;
+  const S = R.sk, k = s.sk, obj = x => x && typeof x === 'object' ? x : {};
+  Object.assign(S, {lv:num(k.lv, 1), xp:num(k.xp), need:num(k.need, S.need), act:obj(k.act), pas:obj(k.pas), evo:obj(k.evo), cd:{},
+    rerolls:num(k.rerolls, S.rerolls), picks:num(k.picks), pending:num(k.pending), shield:num(k.shield),
+    choices:Array.isArray(k.choices) && k.pending > 0 ? k.choices : null});
+  applyPassives();
+  if (R.daily){   // 日替わり：コースの乱数を作り直し、中断したところまで進める
+    R.cr = countRng(seeded(R.daily.seed));
+    for (let i = 0; i < num(s.crN); i++) R.cr();
+  }
+  R.zoneCard = {t:2.6, max:2.6, i:zoneIdx(), sub:'続きから', from:null};
+}
+
+// 起動したときに途中の冒険があれば聞く。やめるときは「撤退した」扱いで記録する
+export function offerResume(){
+  const s = loadRunSnap();
+  if (!s) return;
+  const min = Math.round((Date.now() - (s.at || Date.now()))/60000);
+  const ago = min < 1 ? 'さっき' : min < 60 ? `${min}分前` : min < 60*24 ? `${Math.round(min/60)}時間前` : `${Math.round(min/1440)}日前`;
+  dialog(`<h2>冒険の続き</h2>
+    <p class="sksum">前回の冒険が途中で止まっています（${ago}）。<br>
+      ${s.daily ? '日替わり ・ ' : s.diff > 1 ? `難易度${s.diff} ・ ` : ''}<b>${fmt(s.px/25)}m</b> ・ Lv ${s.sk.lv} ・ 拾った装備 ${(s.loot || []).length}個</p>
+    <p class="dnote">画面にいた敵は戻りません。ボス戦の途中だった場合、ボスは最初からです。拾った装備とゴールドは、どちらを選んでも所持品に入っています。</p>
+    <div class="btns"><button class="primary" id="dCont">続きから遊ぶ</button><button id="dQuit">やめる（撤退した扱い）</button></div>`);
+  $('dCont').onclick = () => { closeDialog(); resumeRun(s); };
+  $('dQuit').onclick = () => { closeDialog(); abandonRun(s); renderBase(); };
+}
+function abandonRun(s){
+  const dist = Math.floor(s.px/25), P = SAVE.prog;
+  const fake = {kills:s.kills || 0, gold:s.gold || 0, t:s.t || 0, dist, start:s.start || 0, bossLog:s.bossLog || [], eliteKills:s.eliteKills || 0,
+    stomps:s.stomps || 0, jumpsUsed:s.jumpsUsed || 0, loot:s.loot || [], salv:s.salv || 0, flawless:s.flawless || 0, evos:s.evos || 0,
+    endReason:'retreat', sk:{lv:s.sk.lv || 1}, diff:s.diff, daily:s.daily ? dailyPlan(s.daily) : null};
+  SAVE.runs++;
+  SAVE.best = Math.max(SAVE.best, dist);
+  if (!s.daily) P.best[s.diff] = Math.max(P.best[s.diff] || 0, dist);
+  recordRun(fake);
+  clearRunSnap();
+}
 
 $('run').addEventListener('pointerdown', ev => {
   if (ev.target.closest('button')) return;

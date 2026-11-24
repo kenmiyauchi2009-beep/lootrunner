@@ -6,7 +6,7 @@ import { renderBase } from './base.js';
 import { closeModal, dialog, closeDialog, toast } from './ui.js';
 import { offlineStatus, updateReady } from './offline.js';
 import { isMuted, setMuted, setVolumes, sfx } from './audio.js';
-import { toggleMute } from './run.js';
+import { toggleMute, clearRunSnap } from './run.js';
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]));
 
@@ -137,7 +137,7 @@ export function openSettings(){
       <p style="font-size:13px;text-align:left;color:var(--muted)">今のデータ（${summary(SAVE)}）は上書きされます。</p>
       <div class="btns"><button class="primary" id="dOk">読み込む</button><button id="dNo">やめる</button></div>`);
     $('dOk').onclick = () => {
-      const ok = applySave(data);
+      const ok = applySave(data); clearRunSnap();
       applySettings();
       closeDialog(); closeModal(); renderBase();
       toast(ok ? 'セーブを読み込みました' : '読み込みましたが、保存に失敗しました');
@@ -150,7 +150,7 @@ export function openSettings(){
       <p style="font-size:13px;text-align:left">${summary(SAVE)}</p>
       <p style="font-size:13px;text-align:left;color:var(--bad)">すべて消えて、最初の剣1本からやり直しになります。元に戻せません。</p>
       <div class="btns"><button class="danger" id="dOk">初期化する</button><button id="dNo">やめる</button></div>`);
-    $('dOk').onclick = () => { resetSave(); applySettings(); closeDialog(); closeModal(); renderBase(); toast('データを初期化しました'); };
+    $('dOk').onclick = () => { resetSave(); clearRunSnap(); applySettings(); closeDialog(); closeModal(); renderBase(); toast('データを初期化しました'); };
     $('dNo').onclick = closeDialog;
   };
 
